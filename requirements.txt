@@ -1,0 +1,7 @@
+python3-discogs-client
+pyyaml
+requests
+beautifulsoup4
+lxml
+schedule
+pyTelegramBotAPI
