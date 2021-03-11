@@ -7,7 +7,7 @@ with open("README.md", "r") as fh:
 with open("requirements.txt", 'r') as fh:
     requirements = fh.read().splitlines()
 
-setup(
+setuptools.setup(
     name=package_info.__title__,  # How you named your package folder (MyLib)
     packages=setuptools.find_packages(),
     version=package_info.__version__,  # Start with a small number and increase it with every
