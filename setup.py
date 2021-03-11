@@ -30,8 +30,6 @@ setuptools.setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
-        'Topic :: Bot',
-        'Topic :: Bot :: Telegram',
         'Topic :: Internet :: WWW/HTTP',
         'Operating System :: OS Independent'
     ],
