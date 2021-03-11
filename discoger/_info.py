@@ -1,6 +1,6 @@
 __version__ = '0.0.1'
 
-__title__ = "Discoger"
+__title__ = "discoger"
 __author__ = 'Beudbeud'
 __author_email__ = 'beudbeud@gmail.com'
 __github_username__ = "beudbeud"

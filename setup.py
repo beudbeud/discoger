@@ -18,7 +18,7 @@ setup(
     author=package_info.__author__,  # Type in your name
     author_email=package_info.__author_email__,  # Type in your E-Mail
     url=f'https://github.com/{package_info.__github_username__}/{package_info.__title__}',  #
-    download_url=f'https://github.com/{package_info.__github_username__}/{package_info.__title
+    download_url=f'https://github.com/{package_info.__github_username__}/{package_info.__title__}/archive/{package_info.__version__}.tar.gz',
     keywords=package_info.__keywords__,
     install_requires=requirements,
     classifiers=[
