@@ -1,8 +1,13 @@
 name: Upload Docker image
 
 on:
-  release:
-    types: [created]
+  push:
+    branches:
+      - 'master'
+
+#on:
+#  release:
+#    types: [created]
 
 jobs:
   docker:
@@ -23,6 +28,6 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: user/app:latest
+          tags: beudbeud/discoger:latest
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
