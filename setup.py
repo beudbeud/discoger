@@ -21,6 +21,7 @@ setuptools.setup(
     download_url=f'https://github.com/{package_info.__github_username__}/{package_info.__title__}/archive/{package_info.__version__}.tar.gz',
     keywords=package_info.__keywords__,
     install_requires=requirements,
+    entry_points={"console_scripts": ["discoger = discoger.discoger:main"]},
     classifiers=[
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Development Status :: 4 - Beta',
