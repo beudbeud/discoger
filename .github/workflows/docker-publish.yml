@@ -14,6 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Docker meta
+        id: docker_meta
+        uses: crazy-max/ghaction-docker-meta@v1
+        with:
+          images: beudbeud/discoger
+          tag-sha: true
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
       - name: Set up Docker Buildx
@@ -28,6 +34,6 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: beudbeud/discoger:latest
+          tags: ${{ steps.docker_meta.outputs.tags }}
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
