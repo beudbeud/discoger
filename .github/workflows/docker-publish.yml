@@ -3,7 +3,7 @@ name: Upload Docker image
 on:
   push:
     branches:
-      - 'master'
+      - 'main'
 
 #on:
 #  release:
