@@ -142,7 +142,7 @@ def send_msg(title, data):
     url = data.get("url")
     date = data.get("date")
     price = data.get("price")
-    text = "New release for :\n%s\ndate: %s\nprice: %s\n%s" % (title, date.strftime('%d %B %Y'), price, url)
+    text = "New release for :\n%s\ndate: %s\nprice: %s\n%s" % (title, date.strftime('%d %B %Y - %H:%M'), price, url)
     bot.send_message(chat_id, text)
 
 
