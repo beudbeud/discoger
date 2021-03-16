@@ -180,7 +180,7 @@ def run_threaded(job_func):
 
 
 def main():
-    schedule.every(30).minutes.do(run_threaded, check_discogs)
+    schedule.every(int(config["DEFAULT"]["schedule_time"])).minutes.do(run_threaded, check_discogs)
     polling_thread = threading.Thread(target=bot_polling)
     polling_thread.daemon = True
     polling_thread.start()
