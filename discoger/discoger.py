@@ -23,6 +23,7 @@ logging.basicConfig(format='%(asctime)s %(levelname)s - %(message)s', level=logg
 home = str(Path.home())
 
 url = "https://www.discogs.com/fr/settings/developers"
+database = list()
 
 config = configparser.ConfigParser()
 config_file = Path(home + "/.config/discoger/config.ini")
@@ -41,7 +42,6 @@ token = config["telegram"]["token"]
 bot = telebot.TeleBot(token)
 chat_id = config["telegram"]["chat_id"]
 
-data_to_save = list()
 
 if config["discogs"]["secret"]:
     secret = config["discogs"]["secret"]
@@ -79,9 +79,9 @@ def bot_polling():
 @bot.message_handler(commands=['help', 'start'])
 def send_welcome(message):
     markup = types.ReplyKeyboardMarkup()
-    itembtnd = types.KeyboardButton('/check')
-    itembtnc = types.KeyboardButton('/help')
-    markup.row(itembtnd, itembtnc)
+    itembtna = types.KeyboardButton('/help')
+    itembtnb = types.KeyboardButton('/check')
+    markup.row(itembtna, itembtnb, itembtnc)
     bot.reply_to(message, """\
 Hi there, I am Discoger bot.
 What do you want?
@@ -97,7 +97,6 @@ def get_check(message):
 
 def market_scrape(release_id, title, last_one):
     url = f"https://www.discogs.com/sell/release/{release_id}?output=rss"
-    first_last_one = last_one
     try:
         response = requests.get(url)
     except requests.exceptions.RequestException as e:
@@ -119,22 +118,23 @@ def market_scrape(release_id, title, last_one):
     for i in range(len(messy_list)):
         match = re.findall(r'\d{4}-\d{2}-\d{2}[\w]\d{2}:\d{2}:\d{2}', messy_list[i])[0]
         updated = datetime.datetime.strptime(match.replace("T", " "), '%Y-%m-%d %H:%M:%S')
-        if updated >= last_one:
-            this_dict = dict()
-            this_dict['date'] = updated
-            this_dict['title'] = title
-            this_dict['id'] = release_id
-            this_dict['price'] = re.findall(r'... \d?\d?\d\d.\d\d', messy_list[i])[0]
-            this_dict['url'] = re.findall('"([^"]*)"', messy_list[i])[0]
-            last_one = updated
-            new_one = True
+        sell_id = re.findall('"([^"]*)"', messy_list[i])[0].rsplit('/', 1)[-1]
+        if check_exist(release_id, sell_id):
+            this_dict = get_data(release_id)
         else:
-            new_one = False
-    if first_last_one != last_one:
+            if updated > last_one:
+                this_dict = dict()
+                this_dict['date'] = updated
+                this_dict['title'] = title
+                this_dict['id'] = release_id
+                this_dict['id_sell'] = sell_id
+                this_dict['price'] = re.findall(r'... \d?\d?\d\d.\d\d', messy_list[i])[0]
+                this_dict['url'] = re.findall('"([^"]*)"', messy_list[i])[0]
+                last_one = updated
+                new_one = True
+    if new_one:
         logging.info("There are new sale\n")
         send_msg(title=title, data=this_dict)
-    elif not new_one:
-        this_dict = {}
     return this_dict
 
 
@@ -146,7 +146,23 @@ def send_msg(title, data):
     bot.send_message(chat_id, text)
 
 
-def check_exist(id, database):
+def get_data(release_id):
+    data = dict()
+    for i in database:
+        if release_id == i.get("id"):
+            data = i
+            return data
+
+
+def check_exist(release_id, id_sell):
+    for i in database:
+        if release_id == i.get("id"):
+            if id_sell == i.get("id_sell"):
+                return True
+    return False
+
+
+def check_date(id):
     for i in database:
         if id == i.get("id"):
             last_one = i.get("date")
@@ -156,22 +172,23 @@ def check_exist(id, database):
 
 
 def check_discogs():
+    data_to_save = list()
     if data_file.exists():
         with open(data_file) as file:
+            global database
             database = yaml.full_load(file)
-    else:
-        database = list()
     id_list = config["discogs"]["id_list"]
     list_notif = client.list(id_list)
     logging.info("Check if there are new a new sale for:")
     for item in list_notif.items:
-        last_one = (check_exist(item.id, database))
+        last_one = (check_date(item.id))
         logging.info(str(item.id) + ": " + item.display_title)
         data_to_save.append(market_scrape(item.id, item.display_title, last_one))
     while {} in data_to_save:
         data_to_save.remove({})
     with open(data_file, 'w') as file:
         yaml.dump(data_to_save, file)
+        file.close()
 
 
 def run_threaded(job_func):
