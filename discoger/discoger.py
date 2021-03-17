@@ -81,7 +81,7 @@ def send_welcome(message):
     markup = types.ReplyKeyboardMarkup()
     itembtna = types.KeyboardButton('/help')
     itembtnb = types.KeyboardButton('/check')
-    markup.row(itembtna, itembtnb, itembtnc)
+    markup.row(itembtna, itembtnb)
     bot.reply_to(message, """\
 Hi there, I am Discoger bot.
 What do you want?
