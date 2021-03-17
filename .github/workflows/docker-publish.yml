@@ -1,13 +1,8 @@
 name: Upload Docker image
 
 on:
-  push:
-    branches:
-      - 'main'
-
-#on:
-#  release:
-#    types: [created]
+  release:
+    types: [created]
 
 jobs:
   docker:
