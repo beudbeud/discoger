@@ -116,6 +116,7 @@ def market_scrape(release_id, title, last_one):
         messy_list.append(str(summaries[i].text) + str(links[i+1]) + str(date[i+1].text))
 
     for i in range(len(messy_list)):
+        this_dict = dict()
         match = re.findall(r'\d{4}-\d{2}-\d{2}[\w]\d{2}:\d{2}:\d{2}', messy_list[i])[0]
         updated = datetime.datetime.strptime(match.replace("T", " "), '%Y-%m-%d %H:%M:%S')
         sell_id = re.findall('"([^"]*)"', messy_list[i])[0].rsplit('/', 1)[-1]
@@ -123,7 +124,6 @@ def market_scrape(release_id, title, last_one):
             this_dict = get_data(release_id)
         else:
             if updated > last_one:
-                this_dict = dict()
                 this_dict['date'] = updated
                 this_dict['title'] = title
                 this_dict['id'] = release_id
