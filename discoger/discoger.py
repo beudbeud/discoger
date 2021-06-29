@@ -120,6 +120,8 @@ def market_scrape(release_id, title, last_one):
         match = re.findall(r'\d{4}-\d{2}-\d{2}[\w]\d{2}:\d{2}:\d{2}', messy_list[i])[0]
         updated = datetime.datetime.strptime(match.replace("T", " "), '%Y-%m-%d %H:%M:%S')
         sell_id = re.findall('"([^"]*)"', messy_list[i])[0].rsplit('/', 1)[-1]
+        if not sell_id:
+            break
         if check_exist(release_id, sell_id):
             this_dict = get_data(release_id)
         else:
@@ -132,10 +134,11 @@ def market_scrape(release_id, title, last_one):
                 this_dict['url'] = re.findall('"([^"]*)"', messy_list[i])[0]
                 last_one = updated
                 new_one = True
-    if new_one:
-        logging.info("There are new sale\n")
-        send_msg(title=title, data=this_dict)
-    return this_dict
+        if new_one:
+            logging.info("There are new sale\n")
+            send_msg(title=title, data=this_dict)
+        return this_dict
+
 
 
 def send_msg(title, data):
@@ -183,7 +186,9 @@ def check_discogs():
     for item in list_notif.items:
         last_one = (check_date(item.id))
         logging.info(str(item.id) + ": " + item.display_title)
-        data_to_save.append(market_scrape(item.id, item.display_title, last_one))
+        data_from_item = market_scrape(item.id, item.display_title, last_one)
+        if data_from_item:
+            data_to_save.append(data_from_item)
     while {} in data_to_save:
         data_to_save.remove({})
     with open(data_file, 'w') as file:
