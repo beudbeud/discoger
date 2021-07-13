@@ -23,17 +23,21 @@ logging.basicConfig(format='%(asctime)s %(levelname)s - %(message)s', level=logg
 home = str(Path.home())
 
 url = "https://www.discogs.com/fr/settings/developers"
-database = list()
+database = dict()
 
 config = configparser.ConfigParser()
 config_file = Path(home + "/.config/discoger/config.ini")
-data_file = Path(home + "/.config/discoger/database.yaml")
+database_dir = Path(home + "/.config/discoger/databases")
 
 if config_file.exists():
     config.read(config_file)
 else:
     print("No config file")
     exit()
+
+if not database_dir.exists():
+    database_dir.mkdir(parents=True, exist_ok=True)
+
 
 schedule_logger = logging.getLogger('schedule')
 logger = telebot.logger
@@ -82,10 +86,27 @@ def send_welcome(message):
     itembtna = types.KeyboardButton('/help')
     itembtnb = types.KeyboardButton('/check')
     markup.row(itembtna, itembtnb)
-    bot.reply_to(message, """\
-Hi there, I am Discoger bot.
-What do you want?
-""", reply_markup=markup)
+    chat_id = message.chat.id
+    data_file = Path("%s/.config/discoger/%s.yaml" % (home, chat_id))
+    (data_file)
+    if data_file.exists():
+        msg = "Hi there, I am Discoger bot. What do you want?"
+        bot.reply_to(message, msg, reply_markup=markup)
+    else:
+        msg = "Hi new user, I am Discorger bot. Can you give me your list on ID of the list i need follow ?"
+        answer = bot.reply_to(message, msg, reply_markup=markup)
+        bot.register_next_step_handler(answer, process_save_step)
+
+
+def process_save_step(message):
+    data_to_save = dict()
+    chat_id = message.chat.id
+    id_list = message.text
+    data_file = Path("%s/.config/discoger/%s.yaml" % (home, chat_id))
+    data_to_save["id_list"] = id_list
+    with open(data_file, 'w') as file:
+        yaml.dump(data_to_save, file)
+        file.close()
 
 
 @bot.message_handler(commands=['check'])
@@ -116,6 +137,7 @@ def market_scrape(release_id, title, last_one):
         messy_list.append(str(summaries[i].text) + str(links[i+1]) + str(date[i+1].text))
 
     for i in range(len(messy_list)):
+        print(i)
         this_dict = dict()
         match = re.findall(r'\d{4}-\d{2}-\d{2}[\w]\d{2}:\d{2}:\d{2}', messy_list[i])[0]
         updated = datetime.datetime.strptime(match.replace("T", " "), '%Y-%m-%d %H:%M:%S')
@@ -148,14 +170,14 @@ def send_msg(title, data):
 
 def get_data(release_id):
     data = dict()
-    for i in database:
+    for i in user_data["release_list"]:
         if release_id == i.get("id"):
             data = i
             return data
 
 
 def check_exist(release_id, id_sell):
-    for i in database:
+    for i in user_data["release_list"]:
         if release_id == i.get("id"):
             if id_sell == i.get("id_sell"):
                 return True
@@ -163,7 +185,7 @@ def check_exist(release_id, id_sell):
 
 
 def check_date(id):
-    for i in database:
+    for i in user_data["release_list"]:
         if id == i.get("id"):
             last_one = i.get("date")
             return last_one
@@ -172,23 +194,26 @@ def check_date(id):
 
 
 def check_discogs():
-    data_to_save = list()
-    if data_file.exists():
+    logging.info("Check all list")
+    data_to_save = dict()
+    for data_file in database_dir.iterdir():
         with open(data_file) as file:
-            global database
-            database = yaml.full_load(file)
-    id_list = config["discogs"]["id_list"]
-    list_notif = client.list(id_list)
-    logging.info("Check if there are new a new sale for:")
-    for item in list_notif.items:
-        last_one = (check_date(item.id))
-        logging.info(str(item.id) + ": " + item.display_title)
-        data_to_save.append(market_scrape(item.id, item.display_title, last_one))
-    while {} in data_to_save:
-        data_to_save.remove({})
-    with open(data_file, 'w') as file:
-        yaml.dump(data_to_save, file)
-        file.close()
+            global user_data
+            user_data = yaml.full_load(file)
+        data_to_save["release_list"] = list()
+        id_list = user_data["id_list"]
+        list_notif = client.list(id_list)
+        logging.info("Check if there are new a new sale for:")
+        for item in list_notif.items:
+            last_one = (check_date(item.id))
+            logging.info(str(item.id) + ": " + item.display_title)
+            data_to_save["release_list"].append(market_scrape(item.id, item.display_title, last_one))
+        while {} in data_to_save:
+            data_to_save["release_list"].remove({})
+        data_to_save["id_list"] = id_list
+        with open(data_file, 'w') as file:
+            yaml.dump(data_to_save, file)
+            file.close()
 
 
 def run_threaded(job_func):
@@ -197,7 +222,7 @@ def run_threaded(job_func):
 
 
 def main():
-    schedule.every(int(config["DEFAULT"]["schedule_time"])).minutes.do(run_threaded, check_discogs)
+    schedule.every(int(config["DEFAULT"]["schedule_time"])).seconds.do(run_threaded, check_discogs)
     polling_thread = threading.Thread(target=bot_polling)
     polling_thread.daemon = True
     polling_thread.start()
