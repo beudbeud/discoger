@@ -82,38 +82,47 @@ def bot_polling():
 
 @bot.message_handler(commands=['help', 'start'])
 def send_welcome(message):
+    chat_id = message.chat.id
+    if Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id)).exists():
+        msg = "Hi there, I am Discoger bot"
+        bot.reply_to(message, msg)
+        process_hi_step(chat_id)
+    else:
+        msg = "Hi new user, I am Discorger bot. Can you give me your list on ID of the list i need follow ?"
+        answer = bot.reply_to(message, msg)
+        bot.register_next_step_handler(answer, process_save_step)
+
+
+def process_hi_step(chat_id):
     markup = types.ReplyKeyboardMarkup()
     itembtna = types.KeyboardButton('/help')
     itembtnb = types.KeyboardButton('/check')
     markup.row(itembtna, itembtnb)
-    chat_id = message.chat.id
-    data_file = Path("%s/.config/discoger/%s.yaml" % (home, chat_id))
-    (data_file)
-    if data_file.exists():
-        msg = "Hi there, I am Discoger bot. What do you want?"
-        bot.reply_to(message, msg, reply_markup=markup)
-    else:
-        msg = "Hi new user, I am Discorger bot. Can you give me your list on ID of the list i need follow ?"
-        answer = bot.reply_to(message, msg, reply_markup=markup)
-        bot.register_next_step_handler(answer, process_save_step)
+    msg = "What do you want?"
+    bot.send_message(chat_id, msg, reply_markup=markup)
 
 
 def process_save_step(message):
     data_to_save = dict()
     chat_id = message.chat.id
     id_list = message.text
-    data_file = Path("%s/.config/discoger/%s.yaml" % (home, chat_id))
+    data_file = Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     data_to_save["id_list"] = id_list
+    data_to_save["release_list"] = list()
     with open(data_file, 'w') as file:
         yaml.dump(data_to_save, file)
         file.close()
+    msg = "Thanks, i added your list in my database"
+    bot.reply_to(message, msg)
+    process_hi_step(chat_id)
 
 
 @bot.message_handler(commands=['check'])
 def get_check(message):
     chat_id = message.chat.id
+    data_file = Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     bot.send_message(chat_id, "Okay i check your discogs list")
-    check_discogs()
+    check_discogs(data_file)
 
 
 def market_scrape(release_id, title, last_one):
@@ -137,7 +146,6 @@ def market_scrape(release_id, title, last_one):
         messy_list.append(str(summaries[i].text) + str(links[i+1]) + str(date[i+1].text))
 
     for i in range(len(messy_list)):
-        print(i)
         this_dict = dict()
         match = re.findall(r'\d{4}-\d{2}-\d{2}[\w]\d{2}:\d{2}:\d{2}', messy_list[i])[0]
         updated = datetime.datetime.strptime(match.replace("T", " "), '%Y-%m-%d %H:%M:%S')
@@ -159,8 +167,8 @@ def market_scrape(release_id, title, last_one):
         if new_one:
             logging.info("There are new sale\n")
             send_msg(title=title, data=this_dict)
+        print(this_dict)
         return this_dict
-
 
 
 def send_msg(title, data):
@@ -196,27 +204,38 @@ def check_date(id):
     return last_one
 
 
-def check_discogs():
-    logging.info("Check all list")
+def check_discogs(data_file):
+    if data_file:
+        logging.info("Check user list")
+        scrap_data(data_file)
+    else:
+        logging.info("Check all list")
+        for x in database_dir.iterdir():
+            scrap_data(x)
+
+
+def scrap_data(data_file):
     data_to_save = dict()
-    for data_file in database_dir.iterdir():
-        with open(data_file) as file:
-            global user_data
-            user_data = yaml.full_load(file)
-        data_to_save["release_list"] = list()
-        id_list = user_data["id_list"]
-        list_notif = client.list(id_list)
-        logging.info("Check if there are new a new sale for:")
-        for item in list_notif.items:
-            last_one = (check_date(item.id))
-            logging.info(str(item.id) + ": " + item.display_title)
-            data_to_save["release_list"].append(market_scrape(item.id, item.display_title, last_one))
-        while {} in data_to_save:
-            data_to_save["release_list"].remove({})
-        data_to_save["id_list"] = id_list
-        with open(data_file, 'w') as file:
-            yaml.dump(data_to_save, file)
-            file.close()
+    with open(data_file) as file:
+        global user_data
+        user_data = yaml.full_load(file)
+    data_to_save["release_list"] = list()
+    id_list = user_data["id_list"]
+    list_notif = client.list(id_list)
+    logging.info("Check if there are new a new sale for:")
+    for item in list_notif.items:
+        last_one = (check_date(item.id))
+        logging.info(str(item.id) + ": " + item.display_title)
+        data_from_item = market_scrape(item.id, item.display_title, last_one)
+        if data_from_item:
+            data_to_save["release_list"].append(data_from_item)
+    while {} in data_to_save["release_list"]:
+        data_to_save["release_list"].remove({})
+    data_to_save["id_list"] = id_list
+    with open(data_file, 'w') as file:
+        yaml.dump(data_to_save, file)
+        file.close()
+
 
 def run_threaded(job_func):
     job_thread = threading.Thread(target=job_func)
@@ -224,7 +243,7 @@ def run_threaded(job_func):
 
 
 def main():
-    schedule.every(int(config["DEFAULT"]["schedule_time"])).seconds.do(run_threaded, check_discogs)
+    schedule.every(int(config["DEFAULT"]["schedule_time"])).minutes.do(run_threaded, check_discogs(None))
     polling_thread = threading.Thread(target=bot_polling)
     polling_thread.daemon = True
     polling_thread.start()
