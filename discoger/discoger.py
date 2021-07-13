@@ -142,6 +142,8 @@ def market_scrape(release_id, title, last_one):
         match = re.findall(r'\d{4}-\d{2}-\d{2}[\w]\d{2}:\d{2}:\d{2}', messy_list[i])[0]
         updated = datetime.datetime.strptime(match.replace("T", " "), '%Y-%m-%d %H:%M:%S')
         sell_id = re.findall('"([^"]*)"', messy_list[i])[0].rsplit('/', 1)[-1]
+        if not sell_id:
+            break
         if check_exist(release_id, sell_id):
             this_dict = get_data(release_id)
         else:
@@ -154,10 +156,11 @@ def market_scrape(release_id, title, last_one):
                 this_dict['url'] = re.findall('"([^"]*)"', messy_list[i])[0]
                 last_one = updated
                 new_one = True
-    if new_one:
-        logging.info("There are new sale\n")
-        send_msg(title=title, data=this_dict)
-    return this_dict
+        if new_one:
+            logging.info("There are new sale\n")
+            send_msg(title=title, data=this_dict)
+        return this_dict
+
 
 
 def send_msg(title, data):
@@ -214,7 +217,6 @@ def check_discogs():
         with open(data_file, 'w') as file:
             yaml.dump(data_to_save, file)
             file.close()
-
 
 def run_threaded(job_func):
     job_thread = threading.Thread(target=job_func)
