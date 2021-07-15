@@ -237,6 +237,7 @@ def scrap_data(data_file):
     while {} in data_to_save["release_list"]:
         data_to_save["release_list"].remove({})
     data_to_save["id_list"] = id_list
+    data_to_save["chat_id"] = user_data["chat_id"]
     with open(data_file, 'w') as file:
         yaml.dump(data_to_save, file)
         file.close()
