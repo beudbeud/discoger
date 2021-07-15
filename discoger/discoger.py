@@ -104,16 +104,22 @@ def process_save_step(message):
     data_to_save = dict()
     chat_id = message.chat.id
     id_list = message.text
-    data_file = Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
-    data_to_save["chat_id"] = chat_id
-    data_to_save["id_list"] = id_list
-    data_to_save["release_list"] = list()
-    with open(data_file, 'w') as file:
-        yaml.dump(data_to_save, file)
-        file.close()
-    msg = "Thanks, i added your list in my database"
-    bot.reply_to(message, msg)
-    process_hi_step(chat_id)
+    try:
+        client.list(id_list)
+        msg = "All is okay. Now you can enjoy Discogers"
+        data_file = Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+        data_to_save["chat_id"] = chat_id
+        data_to_save["id_list"] = id_list
+        data_to_save["release_list"] = list()
+        with open(data_file, 'w') as file:
+            yaml.dump(data_to_save, file)
+            file.close()
+        msg = "Thanks, i added your list in my database"
+        bot.reply_to(message, msg)
+        process_hi_step(chat_id)
+    except:
+        msg = "There are problem to acces to your list. You need check the ID or if the list in public"
+        bot.reply_to(message, msg)
 
 
 @bot.message_handler(commands=['check'])
@@ -166,7 +172,6 @@ def market_scrape(release_id, title, last_one):
         if new_one:
             logging.info("There are new sale\n")
             send_msg(title=title, data=this_dict)
-        print(this_dict)
         return this_dict
 
 
