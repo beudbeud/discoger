@@ -44,8 +44,6 @@ logger = telebot.logger
 
 token = config["telegram"]["token"]
 bot = telebot.TeleBot(token)
-chat_id = config["telegram"]["chat_id"]
-
 
 if config["discogs"]["secret"]:
     secret = config["discogs"]["secret"]
