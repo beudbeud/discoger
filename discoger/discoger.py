@@ -86,7 +86,7 @@ def send_welcome(message):
         bot.reply_to(message, msg)
         process_hi_step(chat_id)
     else:
-        msg = "Hi new user, I am Discorger bot. Can you give me your list on ID of the list i need follow ?"
+        msg = "Hi new user, I am Discorger bot. Give me the ID of the list you want i will need follow ?"
         answer = bot.reply_to(message, msg)
         bot.register_next_step_handler(answer, process_save_step)
 
@@ -105,6 +105,7 @@ def process_save_step(message):
     chat_id = message.chat.id
     id_list = message.text
     data_file = Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+    data_to_save["chat_id"] = chat_id
     data_to_save["id_list"] = id_list
     data_to_save["release_list"] = list()
     with open(data_file, 'w') as file:
@@ -174,6 +175,7 @@ def send_msg(title, data):
     date = data.get("date")
     price = data.get("price")
     text = "New release for :\n%s\ndate: %s\nprice: %s\n%s" % (title, date.strftime('%d %B %Y - %H:%M'), price, url)
+    chat_id = user_data["chat_id"]
     bot.send_message(chat_id, text)
 
 
