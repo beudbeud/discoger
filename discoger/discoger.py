@@ -209,7 +209,7 @@ def check_date(id):
     return last_one
 
 
-def check_discogs(data_file):
+def check_discogs(data_file=None):
     if data_file:
         logging.info("Check user list")
         scrap_data(data_file)
@@ -249,7 +249,7 @@ def run_threaded(job_func):
 
 
 def main():
-    schedule.every(int(config["DEFAULT"]["schedule_time"])).minutes.do(run_threaded, check_discogs(None))
+    schedule.every(int(config["DEFAULT"]["schedule_time"])).minutes.do(run_threaded, check_discogs)
     polling_thread = threading.Thread(target=bot_polling)
     polling_thread.daemon = True
     polling_thread.start()
