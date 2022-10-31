@@ -131,7 +131,7 @@ def get_check(message):
 
 
 def market_scrape(release_id, title, last_one):
-    url = f"https://www.discogs.com/sell/release/{release_id}?output=rss"
+    url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
     try:
         response = requests.get(url)
     except requests.exceptions.RequestException as e:
