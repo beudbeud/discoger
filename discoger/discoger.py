@@ -131,14 +131,14 @@ def get_check(message):
 
 
 def market_scrape(release_id, title, last_one):
+    user_agent = {'User-agent': 'Mozilla/5.0'}
     url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers = user_agent)
     except requests.exceptions.RequestException as e:
         raise SystemExit(e)
 
     soup = BeautifulSoup(response.content, features="xml")
-
     # grab all the summaries and links from discogs marketplace,
     # put 'em in a list
     messy_list = list()
