@@ -1,4 +1,4 @@
-__version__ = '0.2.7'
+__version__ = '0.2.9'
 
 __title__ = "discoger"
 __author__ = 'Beudbeud'
