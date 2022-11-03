@@ -134,9 +134,12 @@ def market_scrape(release_id, title, last_one):
     user_agent = {'User-agent': 'Mozilla/5.0'}
     url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
     try:
-        response = requests.get(url, headers = user_agent)
+        response = requests.get(url, headers=user_agent)
     except requests.exceptions.RequestException as e:
         raise SystemExit(e)
+
+    if response.status_code == 404:
+        logging.error("Error to fetch data for %s" % (title))
 
     soup = BeautifulSoup(response.content, features="xml")
     # grab all the summaries and links from discogs marketplace,
