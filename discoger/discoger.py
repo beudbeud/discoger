@@ -13,7 +13,7 @@ import time
 from time import sleep
 
 import telebot
-from telebot import types
+from telebot import types, util
 
 import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s - %(message)s', level=logging.INFO)
@@ -23,17 +23,8 @@ config_file = Path(home + "/.config/discoger/config.ini")
 database_dir = Path(home + "/.config/discoger/databases")
 
 
-def read_ini(file_path):
-    config = configparser.ConfigParser()
-    config.read(file_path)
-    for section in config.sections():
-        for key in config[section]:
-            print((key, config[section][key]))
-    return config
-
-
 if config_file.exists():
-    config = read_ini(config_file)
+    config = configparser.ConfigParser()
     config.read(config_file)
 else:
     logging.error("No config file, please create a config file follwing example")
@@ -84,7 +75,7 @@ def get_check(message):
     else:
         db["release_list"] = list()
         db.save()
-        bot.send_message(chat_id, "Your discoger want list is empty, send me item url first")
+        bot.send_message(chat_id, "Your discoger following list is empty, send me item url first")
 
 
 @bot.message_handler(regexp="^https://www.discogs.com/fr/release/.*")
@@ -92,15 +83,19 @@ def handle_message(message):
     release_info = dict()
     chat_id = message.chat.id
     release_id = re.findall(r'\d+', message.text)[0]
-    relase_all_info = d.release(release_id)
-    bot.send_message(chat_id, release_id)
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
-    release_info["release_id"] = release_id
-    release_info["artist"] = relase_all_info.artists[0].name
-    release_info["title"] = relase_all_info.title
-    release_info["last_sell"] = dict()
-    db["release_list"].append(release_info)
-    db.save()
+    if not db.search("release_list[?release_id=='%s']" % (release_id)):
+        relase_all_info = d.release(release_id)
+        db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+        release_info["release_id"] = release_id
+        release_info["artist"] = relase_all_info.artists[0].name
+        release_info["title"] = relase_all_info.title
+        release_info["last_sell"] = dict()
+        db["release_list"].append(release_info)
+        db.save()
+        bot.send_message(chat_id, "%s is added in following list" % (release_id))
+    else:
+        bot.send_message(chat_id, "%s is already in following list" % (release_id))
 
 
 @bot.message_handler(commands=['list'])
@@ -108,9 +103,14 @@ def get_list(message):
     chat_id = message.chat.id
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     id_list = 0
+    all_text = ""
     for i in db["release_list"]:
-        bot.send_message(chat_id, "%s: %s - %s" % (id_list, i["artist"], i["title"]))
+        text = "%s: %s - %s https://www.discogs.com/fr/release/%s" % (id_list, i["artist"], i["title"], i["release_id"])
+        all_text = all_text + "\n" + text
         id_list = id_list + 1
+    splitted_text = util.split_string(all_text, 3000)
+    for text in splitted_text:
+        bot.send_message(chat_id, text, disable_web_page_preview=True)
 
 
 @bot.message_handler(commands=['delete'])
@@ -126,18 +126,23 @@ def process_delete_step(message):
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     db["release_list"].pop(int(id_item))
     db.save()
+    bot.send_message(chat_id, "% is deleted in following list" % (id_item))
 
 
 def get_info(release_id):
     data_last_sell = dict()
     url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
     feed = feedparser.parse(url)
-    entry = feed.entries[-1]
-    data_last_sell["id"] = re.findall(r'\d+', entry["link"])[0]
-    data_last_sell["date"] = entry["updated"]
-    data_last_sell["url"] = entry["link"]
-    data_last_sell["price"] = re.findall(r'... \d?\d?\d\d.\d\d', entry["summary_detail"]["value"])[0]
-    return data_last_sell
+    try:
+        entry = feed.entries[-1]
+        data_last_sell["id"] = re.findall(r'\d+', entry["link"])[0]
+        data_last_sell["date"] = entry["updated"]
+        data_last_sell["url"] = entry["link"]
+        data_last_sell["price"] = re.findall(r'... \d?\d?\d\d.\d\d', entry["summary_detail"]["value"])[0]
+        return data_last_sell
+    except Exception as e:
+        logging.debug("%s: for %s item" % (e, release_id))
+        return None
 
 
 def check_discogs(chat_id=None):
@@ -155,15 +160,19 @@ def check_discogs(chat_id=None):
 def scrap_data(chat_id):
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     chat_id = db.get("chat_id")
-    for i in db["release_list"]:
-        data_last_sell = get_info(i["release_id"])
-        if not i["last_sell"] or (i["last_sell"]["id"] != data_last_sell["id"] and i["last_sell"]["date"] < data_last_sell["date"]):
-            logging.info("New item for %s - %s" % (i["artist"], i["title"]))
-            text = "New release for :\n%s\ndate: %s\nprice: %s\n%s" % (i["title"], data_last_sell["date"], data_last_sell["price"], data_last_sell["url"])
-            bot.send_message(chat_id, text)
-            i["last_sell"] = data_last_sell
+    for i in range(len(db["release_list"])):
+        item = db.search("release_list[%s]" % (str(i)))
+        data_last_sell = get_info(item["release_id"])
+        if data_last_sell:
+            if not item["last_sell"] or (item["last_sell"]["id"] != data_last_sell["id"] and item["last_sell"]["date"] < data_last_sell["date"]):
+                logging.info("New item for %s - %s" % (item["artist"], item["title"]))
+                text = "New release for :\n%s\ndate: %s\nprice: %s\n%s" % (item["title"], data_last_sell["date"], data_last_sell["price"], data_last_sell["url"])
+                bot.send_message(chat_id, text)
+                db["release_list"][i]["last_sell"] = data_last_sell
+            else:
+                logging.info("Not new item for %s - %s" % (db["release_list"][i]["artist"], db["release_list"][i]["title"]))
         else:
-            logging.info("Not new item for %s - %s" % (i["artist"], i["title"]))
+            logging.info("Nothing available for %s - %s" % (db["release_list"][i]["artist"], db["release_list"][i]["title"]))
     db.save()
 
 
