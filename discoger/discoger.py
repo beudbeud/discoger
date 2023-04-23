@@ -78,7 +78,7 @@ def get_check(message):
         bot.send_message(chat_id, "Your discoger following list is empty, send me item url first")
 
 
-@bot.message_handler(regexp="^https://www.discogs.com/fr/release/.*")
+@bot.message_handler(regexp="^https://www.discogs.com/.*release/.*")
 def handle_message(message):
     release_info = dict()
     chat_id = message.chat.id
