@@ -1,7 +1,5 @@
 python3-discogs-client
-pyyaml
-requests
-beautifulsoup4
-lxml
+yamldb
 schedule
 pyTelegramBotAPI
+feedparser

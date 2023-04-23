@@ -24,15 +24,14 @@ setuptools.setup(
     entry_points={"console_scripts": ["discoger = discoger.discoger:main"]},
     classifiers=[
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
         # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state
         'Programming Language :: Python :: 3',  # Specify which python versions that you want
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Topic :: Internet :: WWW/HTTP',
         'Operating System :: OS Independent'
     ],
-    python_requires='>=3.6'
+    python_requires='>=3.7'
 )

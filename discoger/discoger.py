@@ -2,11 +2,9 @@
 
 import configparser
 import discogs_client
-import yaml
-import requests
-from bs4 import BeautifulSoup
+from yamldb.YamlDB import YamlDB
+import feedparser
 import re
-import datetime
 from pathlib import Path
 
 import threading
@@ -21,46 +19,152 @@ import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s - %(message)s', level=logging.INFO)
 
 home = str(Path.home())
-
-url = "https://www.discogs.com/fr/settings/developers"
-database = dict()
-
-config = configparser.ConfigParser()
 config_file = Path(home + "/.config/discoger/config.ini")
 database_dir = Path(home + "/.config/discoger/databases")
 
+
+def read_ini(file_path):
+    config = configparser.ConfigParser()
+    config.read(file_path)
+    for section in config.sections():
+        for key in config[section]:
+            print((key, config[section][key]))
+    return config
+
+
 if config_file.exists():
+    config = read_ini(config_file)
     config.read(config_file)
 else:
-    print("No config file")
-    exit()
+    logging.error("No config file, please create a config file follwing example")
+    raise SystemExit()
 
 if not database_dir.exists():
     database_dir.mkdir(parents=True, exist_ok=True)
 
-
-schedule_logger = logging.getLogger('schedule')
-logger = telebot.logger
-
 token = config["telegram"]["token"]
+secret = secret = config["discogs"]["secret"]
 bot = telebot.TeleBot(token)
 
-if config["discogs"]["secret"]:
-    secret = config["discogs"]["secret"]
-else:
-    print(f'Please browse to the following URL {url}')
-
-    secret = input('Verification code : ')
-    config["discogs"]["secret"] = secret
-    with open(config_file, 'w') as configfile:
-        config.write(configfile)
-
 try:
-    client = discogs_client.Client('DiscogsAlert/0.1', user_token=secret)
-    me = client.identity()
+    d = discogs_client.Client('DiscogsAlert/0.1', user_token=secret)
+    me = d.identity()
 except discogs_client.exceptions.HTTPError as e:
     logging.error('Error: Unable to authenticate.')
     raise SystemExit(e)
+
+
+@bot.message_handler(commands=['help', 'start'])
+def send_welcome(message):
+    chat_id = message.chat.id
+    msg = "Hi there, I am Discoger bot"
+    bot.reply_to(message, msg)
+    process_hi_step(chat_id)
+
+
+def process_hi_step(chat_id):
+    markup = types.ReplyKeyboardMarkup()
+    itembtna = types.KeyboardButton('/help')
+    itembtnb = types.KeyboardButton('/check')
+    itembtnc = types.KeyboardButton('/list')
+    itembtnd = types.KeyboardButton('/delete')
+    markup.row(itembtna, itembtnb)
+    markup.row(itembtnc, itembtnd)
+    msg = "What do you want?"
+    bot.send_message(chat_id, msg, reply_markup=markup)
+
+
+@bot.message_handler(commands=['check'])
+def get_check(message):
+    chat_id = message.chat.id
+    db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+    if db.get("release_list"):
+        bot.send_message(chat_id, "Okay i check your discogs list")
+        check_discogs(chat_id)
+    else:
+        db["release_list"] = list()
+        db.save()
+        bot.send_message(chat_id, "Your discoger want list is empty, send me item url first")
+
+
+@bot.message_handler(regexp="^https://www.discogs.com/fr/release/.*")
+def handle_message(message):
+    release_info = dict()
+    chat_id = message.chat.id
+    release_id = re.findall(r'\d+', message.text)[0]
+    relase_all_info = d.release(release_id)
+    bot.send_message(chat_id, release_id)
+    db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+    release_info["release_id"] = release_id
+    release_info["artist"] = relase_all_info.artists[0].name
+    release_info["title"] = relase_all_info.title
+    release_info["last_sell"] = dict()
+    db["release_list"].append(release_info)
+    db.save()
+
+
+@bot.message_handler(commands=['list'])
+def get_list(message):
+    chat_id = message.chat.id
+    db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+    id_list = 0
+    for i in db["release_list"]:
+        bot.send_message(chat_id, "%s: %s - %s" % (id_list, i["artist"], i["title"]))
+        id_list = id_list + 1
+
+
+@bot.message_handler(commands=['delete'])
+def delete_release(message):
+    msg = "Which item do you want delete in your list?"
+    answer = bot.reply_to(message, msg)
+    bot.register_next_step_handler(answer, process_delete_step)
+
+
+def process_delete_step(message):
+    chat_id = message.chat.id
+    id_item = message.text
+    db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+    db["release_list"].pop(int(id_item))
+    db.save()
+
+
+def get_info(release_id):
+    data_last_sell = dict()
+    url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
+    feed = feedparser.parse(url)
+    entry = feed.entries[-1]
+    data_last_sell["id"] = re.findall(r'\d+', entry["link"])[0]
+    data_last_sell["date"] = entry["updated"]
+    data_last_sell["url"] = entry["link"]
+    data_last_sell["price"] = re.findall(r'... \d?\d?\d\d.\d\d', entry["summary_detail"]["value"])[0]
+    return data_last_sell
+
+
+def check_discogs(chat_id=None):
+    if chat_id:
+        logging.info("Check user list %s" % (chat_id))
+        scrap_data(chat_id)
+    else:
+        logging.info("Check all list")
+        for x in database_dir.iterdir():
+            chat_id = re.findall(r'\d+', str(x))[0]
+            logging.info("Check user list %s" % (chat_id))
+            scrap_data(chat_id)
+
+
+def scrap_data(chat_id):
+    db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+    chat_id = db.get("chat_id")
+    for i in db["release_list"]:
+        data_last_sell = get_info(i["release_id"])
+        if not i["last_sell"] or (i["last_sell"]["id"] != data_last_sell["id"] and i["last_sell"]["date"] < data_last_sell["date"]):
+            logging.info("New item for %s - %s" % (i["artist"], i["title"]))
+            text = "New release for :\n%s\ndate: %s\nprice: %s\n%s" % (i["title"], data_last_sell["date"], data_last_sell["price"], data_last_sell["url"])
+            bot.send_message(chat_id, text)
+            i["last_sell"] = data_last_sell
+        else:
+            logging.info("Not new item for %s - %s" % (i["artist"], i["title"]))
+    db.save()
 
 
 def bot_polling():
@@ -78,174 +182,6 @@ def bot_polling():
             break
 
 
-@bot.message_handler(commands=['help', 'start'])
-def send_welcome(message):
-    chat_id = message.chat.id
-    if Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id)).exists():
-        msg = "Hi there, I am Discoger bot"
-        bot.reply_to(message, msg)
-        process_hi_step(chat_id)
-    else:
-        msg = "Hi new user, I am Discorger bot. Give me the ID of the list you want i will need follow ?"
-        answer = bot.reply_to(message, msg)
-        bot.register_next_step_handler(answer, process_save_step)
-
-
-def process_hi_step(chat_id):
-    markup = types.ReplyKeyboardMarkup()
-    itembtna = types.KeyboardButton('/help')
-    itembtnb = types.KeyboardButton('/check')
-    markup.row(itembtna, itembtnb)
-    msg = "What do you want?"
-    bot.send_message(chat_id, msg, reply_markup=markup)
-
-
-def process_save_step(message):
-    data_to_save = dict()
-    chat_id = message.chat.id
-    id_list = message.text
-    try:
-        client.list(id_list)
-        msg = "All is okay. Now you can enjoy Discogers"
-        data_file = Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
-        data_to_save["chat_id"] = chat_id
-        data_to_save["id_list"] = id_list
-        data_to_save["release_list"] = list()
-        with open(data_file, 'w') as file:
-            yaml.dump(data_to_save, file)
-            file.close()
-        msg = "Thanks, i added your list in my database"
-        bot.reply_to(message, msg)
-        process_hi_step(chat_id)
-    except:
-        msg = "There are problem to acces to your list. You need check the ID or if the list in public"
-        bot.reply_to(message, msg)
-
-
-@bot.message_handler(commands=['check'])
-def get_check(message):
-    chat_id = message.chat.id
-    data_file = Path("%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
-    bot.send_message(chat_id, "Okay i check your discogs list")
-    check_discogs(data_file)
-
-
-def market_scrape(release_id, title, last_one):
-    user_agent = {'User-agent': 'Mozilla/5.0'}
-    url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
-    try:
-        response = requests.get(url, headers=user_agent)
-    except requests.exceptions.RequestException as e:
-        raise SystemExit(e)
-
-    if response.status_code == 404:
-        logging.error("Error to fetch data for %s" % (title))
-
-    soup = BeautifulSoup(response.content, features="xml")
-    # grab all the summaries and links from discogs marketplace,
-    # put 'em in a list
-    messy_list = list()
-    summaries = soup.findAll('summary')
-    links = soup.findAll('link')
-    date = soup.findAll('updated')
-
-    new_one = False
-    for i in range(len(summaries)):
-        messy_list.append(str(summaries[i].text) + str(links[i+1]) + str(date[i+1].text))
-
-    for i in range(len(messy_list)):
-        this_dict = dict()
-        match = re.findall(r'\d{4}-\d{2}-\d{2}[\w]\d{2}:\d{2}:\d{2}', messy_list[i])[0]
-        updated = datetime.datetime.strptime(match.replace("T", " "), '%Y-%m-%d %H:%M:%S')
-        sell_id = re.findall('"([^"]*)"', messy_list[i])[0].rsplit('/', 1)[-1]
-        if not sell_id:
-            break
-        if check_exist(release_id, sell_id):
-            this_dict = get_data(release_id)
-        else:
-            if updated > last_one:
-                this_dict['date'] = updated
-                this_dict['title'] = title
-                this_dict['id'] = release_id
-                this_dict['id_sell'] = sell_id
-                this_dict['price'] = re.findall(r'... \d?\d?\d\d.\d\d', messy_list[i])[0]
-                this_dict['url'] = re.findall('"([^"]*)"', messy_list[i])[0]
-                last_one = updated
-                new_one = True
-        if new_one:
-            logging.info("There are new sale\n")
-            send_msg(title=title, data=this_dict)
-        return this_dict
-
-
-def send_msg(title, data):
-    url = data.get("url")
-    date = data.get("date")
-    price = data.get("price")
-    text = "New release for :\n%s\ndate: %s\nprice: %s\n%s" % (title, date.strftime('%d %B %Y - %H:%M'), price, url)
-    chat_id = user_data["chat_id"]
-    bot.send_message(chat_id, text)
-
-
-def get_data(release_id):
-    data = dict()
-    for i in user_data["release_list"]:
-        if release_id == i.get("id"):
-            data = i
-            return data
-
-
-def check_exist(release_id, id_sell):
-    for i in user_data["release_list"]:
-        if release_id == i.get("id"):
-            if id_sell == i.get("id_sell"):
-                return True
-    return False
-
-
-def check_date(id):
-    for i in user_data["release_list"]:
-        if id == i.get("id"):
-            last_one = i.get("date")
-            return last_one
-    last_one = datetime.datetime.strptime("1986-09-17 05:51:41", '%Y-%m-%d %H:%M:%S')
-    return last_one
-
-
-def check_discogs(data_file=None):
-    if data_file:
-        logging.info("Check user list")
-        scrap_data(data_file)
-    else:
-        logging.info("Check all list")
-        for x in database_dir.iterdir():
-            scrap_data(x)
-
-
-def scrap_data(data_file):
-    data_to_save = dict()
-    with open(data_file) as file:
-        global user_data
-        user_data = yaml.full_load(file)
-    data_to_save["release_list"] = list()
-    id_list = user_data["id_list"]
-    list_notif = client.list(id_list)
-    logging.info("Check if there are new a new sale for:")
-    for item in list_notif.items:
-        last_one = (check_date(item.id))
-        logging.info(str(item.id) + ": " + item.display_title)
-        data_from_item = market_scrape(item.id, item.display_title, last_one)
-        if data_from_item:
-            data_to_save["release_list"].append(data_from_item)
-    while {} in data_to_save["release_list"]:
-        data_to_save["release_list"].remove({})
-    data_to_save["id_list"] = id_list
-    data_to_save["chat_id"] = user_data["chat_id"]
-    with open(data_file, 'w') as file:
-        yaml.dump(data_to_save, file)
-        file.close()
-
-
 def run_threaded(job_func):
     job_thread = threading.Thread(target=job_func)
     job_thread.start()
@@ -256,7 +192,6 @@ def main():
     polling_thread = threading.Thread(target=bot_polling)
     polling_thread.daemon = True
     polling_thread.start()
-
     while 1:
         schedule.run_pending()
         time.sleep(1)
