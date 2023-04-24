@@ -1,0 +1,8 @@
+[DEFAULT]
+schedule_time = 30
+
+[discogs]
+secret = dbPVkGbCVVffggfgkdfgmlkknzezsbhmscskncno
+
+[telegram]
+token = 1766763279:AAFwufBsdfdsfgdfsgfgsfsgdfgsdf

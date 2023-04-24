@@ -6,10 +6,10 @@ Telegram bot for checking if there are new sell in one specific list on Discogs
 
 ### Installation
 
-Installation is in three steps, the first is getting credentials from Discogs and Telegram. 
+Installation is in three steps, the first is getting credentials from Discogs and Telegram.
 You need to create a [Token](https://www.discogs.com/fr/settings/developers).
 
-For Telegram you need contact []@BotFather](https://t.me/botfather) and follow a few simple steps for get your authorization token.
+For Telegram you need contact [@BotFather](https://t.me/botfather) and follow a few simple steps for get your authorization token.
 
 ### Configuration
 
@@ -21,7 +21,7 @@ schedule_time = 30
 
 [discogs]
 secret = dbPVkGbCVVffggfgkdfgmlkknzezsbhmscskncno
- 
+
 [telegram]
 token = 1766763279:AAFwufBsdfdsfgdfsgfgsfsgdfgsdf
 ```
