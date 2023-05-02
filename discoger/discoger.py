@@ -37,6 +37,14 @@ token = config["telegram"]["token"]
 secret = secret = config["discogs"]["secret"]
 bot = telebot.TeleBot(token)
 
+commands = {  # command description used in the "help" command
+    '/start': 'Get used to the bot',
+    '/help': 'Gives you information about the available commands',
+    '/list': 'Show all item from your following list',
+    '/delete': 'Delete item from the following list',
+    'https://www.discogs.com/release|master/.*': 'Add release or master release in following list (ex: https://www.discogs.com/release/26741825)'
+}
+
 try:
     d = discogs_client.Client('DiscogsAlert/0.1', user_token=secret)
     me = d.identity()
@@ -61,8 +69,11 @@ def process_hi_step(chat_id):
     itembtnd = types.KeyboardButton('/delete')
     markup.row(itembtna, itembtnb)
     markup.row(itembtnc, itembtnd)
-    msg = "What do you want?"
-    bot.send_message(chat_id, msg, reply_markup=markup)
+    help_text = "What do you want?\n"
+    for key in commands:
+        help_text += key + " "
+        help_text += commands[key] + "\n"
+    bot.send_message(chat_id, help_text, reply_markup=markup, disable_web_page_preview=True)
 
 
 @bot.message_handler(commands=['check'])
