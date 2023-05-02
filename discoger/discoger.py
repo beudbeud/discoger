@@ -40,7 +40,7 @@ bot = telebot.TeleBot(token)
 commands = {  # command description used in the "help" command
     '/start': 'Get used to the bot',
     '/help': 'Gives you information about the available commands',
-    '/list': 'Show all item from your following list',
+    '/list': 'Show all items in your following list',
     '/delete': 'Delete item from the following list',
     'https://www.discogs.com/release|master/.*': 'Add release or master release in following list (ex: https://www.discogs.com/release/26741825)'
 }
@@ -57,6 +57,11 @@ except discogs_client.exceptions.HTTPError as e:
 def send_welcome(message):
     chat_id = message.chat.id
     msg = "Hi there, I am Discoger bot"
+    db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
+    if not db.get("release_list"):
+        db["release_list"] = list()
+        db["chat_id"] = chat_id
+        db.save()
     bot.reply_to(message, msg)
     process_hi_step(chat_id)
 
@@ -81,12 +86,10 @@ def get_check(message):
     chat_id = message.chat.id
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     if db.get("release_list"):
-        bot.send_message(chat_id, "Okay i check your discogs list")
+        bot.send_message(chat_id, "Okay i'm checkng your following list")
         check_discogs(chat_id)
     else:
-        db["release_list"] = list()
-        db.save()
-        bot.send_message(chat_id, "Your discoger following list is empty, send me item url first")
+        bot.send_message(chat_id, "Your discoger following list is empty, send me a url first")
 
 
 @bot.message_handler(regexp="^https://www.discogs.com/.*(release|master)/.*")
@@ -118,18 +121,21 @@ def handle_message(message):
 def get_list(message):
     chat_id = message.chat.id
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
-    id_list = 0
-    all_text = ""
-    for i in db["release_list"]:
-        sell_type = i.get("type")
-        if sell_type is None:
-            sell_type = "release"
-        text = "%s: %s - %s %s/%s/%s" % (id_list, i["artist"], i["title"], discogs_url, sell_type, i["release_id"])
-        all_text = all_text + "\n" + text
-        id_list = id_list + 1
-    splitted_text = util.split_string(all_text, 3000)
-    for text in splitted_text:
-        bot.send_message(chat_id, text, disable_web_page_preview=True)
+    if not db.get("release_list"):
+        bot.send_message(chat_id, "Your discoger following list is empty, send me a url first")
+    else:
+        id_list = 0
+        all_text = ""
+        for i in db["release_list"]:
+            sell_type = i.get("type")
+            if sell_type is None:
+                sell_type = "release"
+            text = "%s: %s - %s %s/%s/%s" % (id_list, i["artist"], i["title"], discogs_url, sell_type, i["release_id"])
+            all_text = all_text + "\n" + text
+            id_list = id_list + 1
+        splitted_text = util.split_string(all_text, 3000)
+        for text in splitted_text:
+            bot.send_message(chat_id, text, disable_web_page_preview=True)
 
 
 @bot.message_handler(commands=['delete'])
