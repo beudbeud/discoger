@@ -78,7 +78,7 @@ def get_check(message):
         bot.send_message(chat_id, "Your discoger following list is empty, send me item url first")
 
 
-@bot.message_handler(regexp="^https://www.discogs.com/.*release/.*")
+@bot.message_handler(regexp="^https://www.discogs.com/.*(release|master)/.*")
 def handle_message(message):
     release_info = dict()
     chat_id = message.chat.id
@@ -90,6 +90,11 @@ def handle_message(message):
         release_info["release_id"] = release_id
         release_info["artist"] = relase_all_info.artists[0].name
         release_info["title"] = relase_all_info.title
+        release_info["url"] = message.text
+        if len(re.findall(r'\/master\/\d+', message.text)) == 1:
+            release_info["type"] = "master"
+        else:
+            release_info["type"] = "release"
         release_info["last_sell"] = dict()
         db["release_list"].append(release_info)
         db.save()
@@ -105,7 +110,7 @@ def get_list(message):
     id_list = 0
     all_text = ""
     for i in db["release_list"]:
-        text = "%s: %s - %s https://www.discogs.com/fr/release/%s" % (id_list, i["artist"], i["title"], i["release_id"])
+        text = "%s: %s - %s %s" % (id_list, i["artist"], i["title"], i["url"])
         all_text = all_text + "\n" + text
         id_list = id_list + 1
     splitted_text = util.split_string(all_text, 3000)
@@ -129,9 +134,12 @@ def process_delete_step(message):
     bot.send_message(chat_id, "% is deleted in following list" % (id_item))
 
 
-def get_info(release_id):
+def get_info(release_id, type_sell):
     data_last_sell = dict()
-    url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
+    if type_sell == 'master':
+        url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&master_id={release_id}&ev=mb&format=Vinyl"
+    else:
+        url = f"https://www.discogs.com/fr/sell/mplistrss?output=rss&release_id={release_id}"
     feed = feedparser.parse(url)
     try:
         entry = feed.entries[-1]
@@ -162,7 +170,7 @@ def scrap_data(chat_id):
     chat_id = db.get("chat_id")
     for i in range(len(db["release_list"])):
         item = db.search("release_list[%s]" % (str(i)))
-        data_last_sell = get_info(item["release_id"])
+        data_last_sell = get_info(item["release_id"], item["type"])
         if data_last_sell:
             if not item["last_sell"] or (item["last_sell"]["id"] != data_last_sell["id"] and item["last_sell"]["date"] < data_last_sell["date"]):
                 logging.info("New item for %s - %s" % (item["artist"], item["title"]))
