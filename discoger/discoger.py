@@ -99,11 +99,15 @@ def handle_message(message):
     release_id = re.findall(r'\d+', message.text)[0]
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     if not db.search("release_list[?release_id=='%s']" % (release_id)):
-        relase_all_info = d.release(release_id)
+        if len(re.findall(r'\/master\/\d+', message.text)) == 1:
+            master_release_info = d.master(release_id)
+            release_all_info = d.release(master_release_info.main_release.id)
+        else:
+            release_all_info = d.release(release_id)
         db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
         release_info["release_id"] = release_id
-        release_info["artist"] = relase_all_info.artists[0].name
-        release_info["title"] = relase_all_info.title
+        release_info["artist"] = release_all_info.artists[0].name
+        release_info["title"] = release_all_info.title
         release_info["url"] = message.text
         if len(re.findall(r'\/master\/\d+', message.text)) == 1:
             release_info["type"] = "master"
