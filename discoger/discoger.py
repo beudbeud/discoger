@@ -155,7 +155,7 @@ def process_delete_step(message):
     db = YamlDB(filename="%s/.config/discoger/databases/%s.yaml" % (home, chat_id))
     db["release_list"].pop(int(id_item))
     db.save()
-    bot.send_message(chat_id, "% is deleted in following list" % (id_item))
+    bot.send_message(chat_id, "%s is deleted in following list" % (id_item))
 
 
 def get_info(release_id, type_sell):
