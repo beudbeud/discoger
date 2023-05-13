@@ -1,6 +1,10 @@
 # Discoger
 
-Telegram bot for checking if there are new sell in one specific list on Discogs
+Discoger Bot is a Telegram bot that allows you to be notified when a new sale for a vinyl in your Discogs wantlist is available.
+
+## Usage
+
+1. Search for the Telegram bot "Discoger" or click [this link](https://t.me/Discogers_bot) to open a conversation with the bot.
 
 ## How to use it
 

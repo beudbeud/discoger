@@ -2,20 +2,19 @@
 
 import configparser
 import discogs_client
-from yamldb.YamlDB import YamlDB
+import logging
 import feedparser
-import re
-from pathlib import Path
-
 import threading
 import schedule
-import time
-from time import sleep
-
 import telebot
+import time
+import re
+
+from yamldb.YamlDB import YamlDB
+from pathlib import Path
+from time import sleep
 from telebot import types, util
 
-import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s - %(message)s', level=logging.INFO)
 
 home = str(Path.home())
@@ -34,7 +33,8 @@ if not database_dir.exists():
     database_dir.mkdir(parents=True, exist_ok=True)
 
 token = config["telegram"]["token"]
-secret = secret = config["discogs"]["secret"]
+secret = config["discogs"]["secret"]
+disable_unofficial = config["DEFAULT"].getboolean('disable_unofficial', fallback=True)
 bot = telebot.TeleBot(token)
 
 commands = {  # command description used in the "help" command
@@ -158,7 +158,7 @@ def process_delete_step(message):
     bot.send_message(chat_id, "%s is deleted in following list" % (id_item))
 
 
-def get_info(release_id, type_sell):
+def check_sales(release_id, type_sell):
     data_last_sell = dict()
     if type_sell == 'master':
         url = f"{discogs_url}/sell/mplistrss?output=rss&master_id={release_id}&ev=mb&format=Vinyl"
@@ -171,7 +171,10 @@ def get_info(release_id, type_sell):
         data_last_sell["date"] = entry["updated"]
         data_last_sell["url"] = entry["link"]
         data_last_sell["price"] = re.findall(r'... \d?\d?\d\d.\d\d', entry["summary_detail"]["value"])[0]
-        return data_last_sell
+        if disable_unofficial and len(re.findall('Unofficial', entry["title"])) > 0:
+            return None
+        else:
+            return data_last_sell
     except Exception as e:
         logging.debug("%s: for %s item" % (e, release_id))
         return None
@@ -197,7 +200,7 @@ def scrap_data(chat_id):
         sell_type = item.get("type")
         if sell_type is None:
             sell_type = "release"
-        data_last_sell = get_info(item["release_id"], sell_type)
+        data_last_sell = check_sales(item["release_id"], sell_type)
         if data_last_sell:
             if not item["last_sell"] or (item["last_sell"]["id"] != data_last_sell["id"] and item["last_sell"]["date"] < data_last_sell["date"]):
                 logging.info("New item for %s - %s" % (item["artist"], item["title"]))
