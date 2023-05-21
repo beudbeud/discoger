@@ -180,6 +180,14 @@ def check_sales(release_id, type_sell):
         return None
 
 
+def check_price(release_id, type_sell):
+    if type_sell == 'master':
+        _info = d.master(release_id)
+    else:
+        _info = d.release(release_id)
+    return "%s %s" % (round(_info.price_suggestions.mint.value, 2), _info.price_suggestions.mint.currency)
+
+
 def check_discogs(chat_id=None):
     if chat_id:
         logging.info("Check user list %s" % (chat_id))
@@ -203,8 +211,9 @@ def scrap_data(chat_id):
         data_last_sell = check_sales(item["release_id"], sell_type)
         if data_last_sell:
             if not item["last_sell"] or (item["last_sell"]["id"] != data_last_sell["id"] and item["last_sell"]["date"] < data_last_sell["date"]):
+                good_price = check_price(item["release_id"], sell_type)
                 logging.info("New item for %s - %s" % (item["artist"], item["title"]))
-                text = "New release for:\n%s - %s\ndate: %s\nprice: %s\n%s" % (item["artist"], item["title"], data_last_sell["date"], data_last_sell["price"], data_last_sell["url"])
+                text = "New release for:\n%s - %s\nDate: %s\nPrice: %s\nGood price: %s\n%s" % (item["artist"], item["title"], data_last_sell["date"], data_last_sell["price"], good_price, data_last_sell["url"])
                 bot.send_message(chat_id, text, disable_web_page_preview=False)
                 db["release_list"][i]["last_sell"] = data_last_sell
             else:
