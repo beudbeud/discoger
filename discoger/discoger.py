@@ -214,7 +214,7 @@ def scrap_data(chat_id):
                 good_price = check_price(item["release_id"], sell_type)
                 logging.info("New item for %s - %s" % (item["artist"], item["title"]))
                 text = "New release for:\n%s - %s\nDate: %s\nPrice: %s\nGood price: %s\n%s" % (item["artist"], item["title"], data_last_sell["date"], data_last_sell["price"], good_price, data_last_sell["url"])
-                bot.send_message(chat_id, text, disable_web_page_preview=False)
+                bot.send_message(chat_id, text, disable_web_page_preview=True)
                 db["release_list"][i]["last_sell"] = data_last_sell
             else:
                 logging.info("Not new item for %s - %s" % (db["release_list"][i]["artist"], db["release_list"][i]["title"]))
