@@ -182,7 +182,7 @@ def check_sales(release_id, type_sell):
 
 def check_price(release_id, type_sell):
     if type_sell == 'master':
-        _info = d.master(release_id)
+        return None
     else:
         _info = d.release(release_id)
     return "%s %s" % (round(_info.price_suggestions.mint.value, 2), _info.price_suggestions.mint.currency)
