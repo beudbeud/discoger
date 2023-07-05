@@ -4,9 +4,6 @@ import discoger._info as package_info
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-with open("requirements.txt", 'r') as fh:
-    requirements = fh.read().splitlines()
-
 setuptools.setup(
     name=package_info.__title__,  # How you named your package folder (MyLib)
     packages=setuptools.find_packages(),
@@ -17,21 +14,20 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     author=package_info.__author__,  # Type in your name
     author_email=package_info.__author_email__,  # Type in your E-Mail
-    url=f'https://github.com/{package_info.__github_username__}/{package_info.__title__}',  #
-    download_url=f'https://github.com/{package_info.__github_username__}/{package_info.__title__}/archive/{package_info.__version__}.tar.gz',
+    url=f"https://github.com/{package_info.__github_username__}/{package_info.__title__}",  #
+    download_url=f"https://github.com/{package_info.__github_username__}/{package_info.__title__}/archive/{package_info.__version__}.tar.gz",
     keywords=package_info.__keywords__,
-    install_requires=requirements,
-    entry_points={"console_scripts": ["discoger = discoger.discoger:main"]},
+    entry_points={"console_scripts": ["discoger = discoger.client:main"]},
     classifiers=[
-        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
-        'Development Status :: 5 - Production/Stable',
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Development Status :: 5 - Production/Stable",
         # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state
-        'Programming Language :: Python :: 3',  # Specify which python versions that you want
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
-        'Topic :: Internet :: WWW/HTTP',
-        'Operating System :: OS Independent'
+        "Programming Language :: Python :: 3",  # Specify which python versions that you want
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Topic :: Internet :: WWW/HTTP",
+        "Operating System :: OS Independent",
     ],
-    python_requires='>=3.7'
+    python_requires=">=3.7",
 )

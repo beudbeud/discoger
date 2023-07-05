@@ -22,6 +22,8 @@ After that you need create config.ini file
 ```
 [DEFAULT]
 schedule_time = 30
+disable_unofficial = True
+log_level = INFO
 
 [discogs]
 secret = dbPVkGbCVVffggfgkdfgmlkknzezsbhmscskncno
