@@ -216,5 +216,9 @@ class Discoger:
             time.sleep(1)
 
 
-if __name__ == "__main__":
+def main():
     Discoger()
+
+
+if __name__ == "__main__":
+    main()
