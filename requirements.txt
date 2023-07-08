@@ -1,5 +1,7 @@
+beautifulsoup4==4.12.2
 certifi==2023.5.7
 charset-normalizer==3.1.0
+discoger==2.0.0
 feedparser==6.0.10
 idna==3.4
 jmespath==1.0.1
@@ -13,5 +15,6 @@ requests==2.30.0
 schedule==1.2.0
 sgmllib3k==1.0.0
 six==1.16.0
+soupsieve==2.4.1
 urllib3==2.0.2
 yamldb==0.1.3
