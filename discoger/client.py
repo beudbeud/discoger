@@ -40,7 +40,7 @@ class Discoger:
             "disable_unofficial", fallback=True
         )
         self.bot = telebot.TeleBot(self.token)
-        self.log_level = self.config["DEFAULT"]["log_level"]
+        self.log_level = self.config["DEFAULT"].get("log_level", fallback="INFO")
 
         handler = logging.StreamHandler()
         handler.setFormatter(utils.CustomFormatter())
