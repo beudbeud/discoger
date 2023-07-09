@@ -170,6 +170,45 @@ class Discoger:
                 chat_id, "%s is deleted in following list" % (id_item)
             )
 
+        @self.bot.message_handler(commands=["wantlist"])
+        def wantlist(message):
+            chat_id = message.chat.id
+            db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
+            if db.get("wantlist_user"):
+                message.text = db.get("wantlist_user")
+                message.chat.id = chat_id
+                process_wantlist(message)
+            else:
+                msg = "Give your discogs username for checking your wantlist?"
+                answer = self.bot.reply_to(message, msg)
+                self.bot.register_next_step_handler(answer, process_wantlist)
+
+        def process_wantlist(message):
+            chat_id = message.chat.id
+            username = message.text
+            db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
+            try:
+                user_info = self.d.user(username)
+                for i in user_info.wantlist:
+                    release_info = self.d.release(i.id)
+                    if not db.search("release_list[?release_id=='%s']" % (i.id)):
+                        release = scrap.DiscogerInfo(release_info.url, self.d, str(i.id))
+                        db["release_list"].append(release.release_info)
+                        db.save()
+                        logging.info("Item %s added in following list" % (i.id))
+                    else:
+                        logging.info("Item %s already in your following list" % (i.id))
+                self.bot.send_message(
+                    chat_id, "Your wantlist is synchronized"
+                )
+                if not db.get("wantlist_user"):
+                    db["wantlist_user"] = username
+            except discogs_client.exceptions.DiscogsAPIError as e:
+                self.bot.send_message(
+                    chat_id, "Error, %s" % e
+                )
+
+
         def check_discogs(chat_id=None):
             if chat_id:
                 logging.info("Check user list %s" % (chat_id))
