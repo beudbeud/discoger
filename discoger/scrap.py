@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import requests
 import re
+import logging
 
 
 class DiscogsScraper:
@@ -47,7 +48,7 @@ class DiscogsScraper:
             value = _info.price_suggestions.mint.value
             currency = _info.price_suggestions.mint.currency
             return "%s %s" % (round(value, 2), currency)
-        except:
+        except Exception:
             return "Unknow"
 
 
@@ -67,10 +68,16 @@ class DiscogerInfo:
     def release_info(self) -> dict:
         release_info = dict()
         if self.media_type == "master":
-            master_release_info = self.discogs.master(self.release_id)
-            all_info = self.discogs.release(master_release_info.main_release.id)
+            try:
+                master_release_info = self.discogs.master(self.release_id)
+                all_info = self.discogs.release(master_release_info.main_release.id)
+            except self.d.exceptions.DiscogsAPIError as e:
+                logging.error("Error, %s" % e)
         else:
-            all_info = self.discogs.release(self.release_id)
+            try:
+                all_info = self.discogs.release(self.release_id)
+            except self.d.exceptions.DiscogsAPIError as e:
+                logging.error("Error, %s" % e)
         release_info["release_id"] = self.release_id
         release_info["artist"] = all_info.artists[0].name
         release_info["title"] = all_info.title

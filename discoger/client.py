@@ -53,7 +53,11 @@ class Discoger:
             "/help": "Gives you information about the available commands",
             "/list": "Show all items in your following list",
             "/delete": "Delete item from the following list",
+            "/wantlist": "Synchronize Discogs wantlist to following list",
             "https://www.discogs.com/release|master/.*": "Add release or master release in following list (ex: https://www.discogs.com/release/26741825)",
+        }
+        self.options = {  # command description used in the "help" command
+            "/start": "Get used to the bot"
         }
 
         try:
@@ -67,7 +71,7 @@ class Discoger:
         def send_welcome(message):
             chat_id = message.chat.id
             msg = "Hi there, I am Discoger bot"
-            db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, self.home, chat_id))
+            db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
             if not db.get("release_list"):
                 db["release_list"] = list()
                 db["chat_id"] = chat_id
@@ -81,7 +85,8 @@ class Discoger:
             itembtnb = types.KeyboardButton("/check")
             itembtnc = types.KeyboardButton("/list")
             itembtnd = types.KeyboardButton("/delete")
-            markup.row(itembtna, itembtnb)
+            itembtne = types.KeyboardButton("/wantlist")
+            markup.row(itembtna, itembtnb, itembtne)
             markup.row(itembtnc, itembtnd)
             help_text = "What do you want?\n"
             for key in self.commands:
@@ -127,7 +132,7 @@ class Discoger:
         @self.bot.message_handler(commands=["list"])
         def get_list(message):
             chat_id = message.chat.id
-            db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, self.home, chat_id))
+            db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
             if not db.get("release_list"):
                 self.bot.send_message(
                     chat_id,
@@ -192,22 +197,19 @@ class Discoger:
                 for i in user_info.wantlist:
                     release_info = self.d.release(i.id)
                     if not db.search("release_list[?release_id=='%s']" % (i.id)):
-                        release = scrap.DiscogerInfo(release_info.url, self.d, str(i.id))
+                        release = scrap.DiscogerInfo(
+                            release_info.url, self.d, str(i.id)
+                        )
                         db["release_list"].append(release.release_info)
                         db.save()
                         logging.info("Item %s added in following list" % (i.id))
                     else:
                         logging.info("Item %s already in your following list" % (i.id))
-                self.bot.send_message(
-                    chat_id, "Your wantlist is synchronized"
-                )
+                self.bot.send_message(chat_id, "Your wantlist is synchronized")
                 if not db.get("wantlist_user"):
                     db["wantlist_user"] = username
             except discogs_client.exceptions.DiscogsAPIError as e:
-                self.bot.send_message(
-                    chat_id, "Error, %s" % e
-                )
-
+                self.bot.send_message(chat_id, "Error, %s" % e)
 
         def check_discogs(chat_id=None):
             if chat_id:
