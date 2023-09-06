@@ -98,12 +98,15 @@ Shipping from: %s
                         caption=text,
                     )
                 else:
-                    self.bot.send_message(
-                        chat_id,
-                        text,
-                        parse_mode="markdown",
-                        disable_web_page_preview=True,
-                    )
+                    try:
+                        self.bot.send_message(
+                            chat_id,
+                            text,
+                            parse_mode="markdown",
+                            disable_web_page_preview=True,
+                        )
+                    except ApiTelegramException as e:
+                        logging.info(e)
                 db["release_list"][i]["last_sell"] = data_last_sell
             else:
                 logging.info(
