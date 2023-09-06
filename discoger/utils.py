@@ -105,7 +105,7 @@ Shipping from: %s
                             parse_mode="markdown",
                             disable_web_page_preview=True,
                         )
-                    except ApiTelegramException as e:
+                    except Exception as e:
                         logging.info(e)
                 db["release_list"][i]["last_sell"] = data_last_sell
             else:
