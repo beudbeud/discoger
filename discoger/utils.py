@@ -26,6 +26,36 @@ class CustomFormatter(logging.Formatter):
         return formatter.format(record)
 
 
+def send_msg(
+    self,
+    chat_id,
+    text,
+    photo=None,
+    parse_mode="markdown",
+    disable_web_page_preview=False,
+):
+    if photo:
+        try:
+            self.bot.send_photo(
+                chat_id=chat_id,
+                photo=photo,
+                parse_mode=parse_mode,
+                caption=text,
+            )
+        except Exception as inst:
+            logging.warning("user: %s, %s" % (chat_id, inst))
+    else:
+        try:
+            self.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                disable_web_page_preview=disable_web_page_preview,
+            )
+        except Exception as inst:
+            logging.warning("user: %s, %s" % (chat_id, inst))
+
+
 def check_sales(self, release_id, type_sell):
     self.discogs_url = "https://www.discogs.com"
     data_last_sell = dict()
@@ -91,22 +121,21 @@ Shipping from: %s
                     data_last_sell["url"],
                 )
                 if "image" in item:
-                    self.bot.send_photo(
+                    send_msg(
+                        self,
                         chat_id,
+                        text,
                         photo=item["image"],
                         parse_mode="markdown",
-                        caption=text,
                     )
                 else:
-                    try:
-                        self.bot.send_message(
-                            chat_id,
-                            text,
-                            parse_mode="markdown",
-                            disable_web_page_preview=True,
-                        )
-                    except Exception as e:
-                        logging.info(e)
+                    send_msg(
+                        self,
+                        chat_id,
+                        text,
+                        parse_mode="markdown",
+                        disable_web_page_preview=True,
+                    )
                 db["release_list"][i]["last_sell"] = data_last_sell
             else:
                 logging.info(
