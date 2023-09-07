@@ -92,8 +92,12 @@ class Discoger:
             for key in self.commands:
                 help_text += key + " "
                 help_text += self.commands[key] + "\n"
-            self.bot.send_message(
-                chat_id, help_text, reply_markup=markup, disable_web_page_preview=True
+            utils.send_msg(
+                self,
+                chat_id,
+                help_text,
+                reply_markup=markup,
+                disable_web_page_preview=True,
             )
 
         @self.bot.message_handler(commands=["check"])
@@ -101,10 +105,11 @@ class Discoger:
             chat_id = message.chat.id
             db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
             if db.get("release_list"):
-                self.bot.send_message(chat_id, "Okay i'm checkng your following list")
+                utils.send_msg(self, chat_id, "Okay i'm checkng your following list")
                 check_discogs(chat_id)
             else:
-                self.bot.send_message(
+                utils.send_msg(
+                    self,
                     chat_id,
                     "Your discoger following list is empty, send me a url first",
                 )
@@ -121,12 +126,12 @@ class Discoger:
                 release = scrap.DiscogerInfo(url, self.d, release_id)
                 db["release_list"].append(release.release_info)
                 db.save()
-                self.bot.send_message(
-                    chat_id, "%s is added in following list" % (release_id)
+                utils.send_msg(
+                    self, chat_id, "%s is added in following list" % (release_id)
                 )
             else:
-                self.bot.send_message(
-                    chat_id, "%s is already in following list" % (release_id)
+                utils.send_msg(
+                    self, chat_id, "%s is already in following list" % (release_id)
                 )
 
         @self.bot.message_handler(commands=["list"])
@@ -134,7 +139,8 @@ class Discoger:
             chat_id = message.chat.id
             db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
             if not db.get("release_list"):
-                self.bot.send_message(
+                utils.send_msg(
+                    self,
                     chat_id,
                     "Your discoger following list is empty, send me a url first",
                 )
@@ -157,7 +163,7 @@ class Discoger:
                     id_list = id_list + 1
                 splitted_text = util.split_string(all_text, 3000)
                 for text in splitted_text:
-                    self.bot.send_message(chat_id, text, disable_web_page_preview=True)
+                    utils.send_msg(self, chat_id, text, disable_web_page_preview=True)
 
         @self.bot.message_handler(commands=["delete"])
         def delete_release(message):
@@ -171,8 +177,8 @@ class Discoger:
             db = YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
             db["release_list"].pop(int(id_item))
             db.save()
-            self.bot.send_message(
-                chat_id, "%s is deleted in following list" % (id_item)
+            utils.send_msg(
+                self, chat_id, text="%s is deleted in following list" % (id_item)
             )
 
         @self.bot.message_handler(commands=["wantlist"])
@@ -205,11 +211,11 @@ class Discoger:
                         logging.info("Item %s added in following list" % (i.id))
                     else:
                         logging.info("Item %s already in your following list" % (i.id))
-                self.bot.send_message(chat_id, "Your wantlist is synchronized")
+                utils.send_msg(self, chat_id, "Your wantlist is synchronized")
                 if not db.get("wantlist_user"):
                     db["wantlist_user"] = username
             except discogs_client.exceptions.DiscogsAPIError as e:
-                self.bot.send_message(chat_id, "Error, %s" % e)
+                utils.send_msg(self, chat_id, "Error, %s" % e)
 
         def check_discogs(chat_id=None):
             if chat_id:
