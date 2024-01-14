@@ -1,15 +1,15 @@
-FROM alpine:3.17
+FROM ubuntu:23.04
 
 LABEL maintainer="beudbeud@beudibox.fr"
 
-RUN apk update && apk add build-base python3 py3-pip lynx
+RUN apt update && apt install python3 lynx ca-certificates python3-pip -y
 
 COPY . /src
 
 WORKDIR /src
 
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt --break-system-packages
 
-RUN pip install .
+RUN pip install . --break-system-packages
 
 ENTRYPOINT ["discoger"]
