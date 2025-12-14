@@ -1,7 +1,8 @@
-import feedparser
 import re
 import logging
+import delegator
 from discoger import scrap
+from bs4 import BeautifulSoup
 
 
 class CustomFormatter(logging.Formatter):
@@ -60,21 +61,25 @@ def check_sales(self, release_id, type_sell):
     self.discogs_url = "https://www.discogs.com"
     data_last_sell = dict()
     if type_sell == "master":
-        url = f"{self.discogs_url}/sell/mplistrss?output=rss&master_id={release_id}&ev=mb&format=Vinyl"
+        url = f"{self.discogs_url}/sell/list?sort=listed%2Cdesc&limit=25&master_id={release_id}&format=Vinyl"
     else:
-        url = f"{self.discogs_url}/sell/mplistrss?output=rss&release_id={release_id}"
-    feed = feedparser.parse(url)
+        url = f"{self.discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
+    cmd = "lynx -source -accept_all_cookies '%s'" % url
+    req = delegator.run(cmd)
+    soup = BeautifulSoup(req.out, "html.parser")
     try:
-        entry = feed.entries[-1]
-        data_last_sell["id"] = re.findall(r"\d+", entry["link"])[0]
-        data_last_sell["date"] = entry["updated"]
-        data_last_sell["url"] = entry["link"]
-        data_last_sell["price"] = re.findall(
-            r"... \d?\d?\d\d.\d\d", entry["summary_detail"]["value"]
-        )[0]
+        table = soup.find_all("table", {"class": "mpitems"})
+        last_item = table[0].find_all("tr")[1]
+        item = last_item.find("a", {"class": "item_description_title"})
+        price = last_item.find("span", {"class": "price"})
+
+        data_last_sell = dict()
+        data_last_sell["id"] = re.search(r'\d+', item["href"]).group()
+        data_last_sell["price"] = "{} {}".format(price["data-currency"], price["data-pricevalue"])
+        data_last_sell["url"] = "https://www.discogs.com{}".format(item["href"])
         if (
             self.disable_unofficial
-            and len(re.findall("Unofficial", entry["title"])) > 0
+            and len(re.findall("Unofficial", item.get_text())) > 0
         ):
             return None
         else:
@@ -95,14 +100,12 @@ def scrap_data(self, chat_id, db):
         if data_last_sell:
             if not item["last_sell"] or (
                 item["last_sell"]["id"] != data_last_sell["id"]
-                and item["last_sell"]["date"] < data_last_sell["date"]
             ):
                 parse = scrap.DiscogsScraper(data_last_sell["url"], self.d)
                 logging.info("New item for %s - %s" % (item["artist"], item["title"]))
                 text = """
 **New release for:**
 %s - %s
-Date: %s
 Price: %s
 Recommanded price: %s
 Media: %s
@@ -112,7 +115,6 @@ Shipping from: %s
                 """ % (
                     item["artist"],
                     item["title"],
-                    data_last_sell["date"],
                     data_last_sell["price"],
                     parse.suggestion_price,
                     parse.media_condition,
