@@ -9,6 +9,7 @@ class DiscogsScraper:
         cmd = "lynx -source -accept_all_cookies %s" % url
         req = delegator.run(cmd)
         soup = BeautifulSoup(req.out, "html.parser")
+        req.kill()
         self.soup = soup
         self.release_id = re.findall(r"\d+", soup.select("a.release-page")[0]["href"])[
             0
