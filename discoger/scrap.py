@@ -8,6 +8,7 @@ class DiscogsScraper:
     def __init__(self, url, d):
         cmd = "lynx -source -accept_all_cookies %s" % url
         req = delegator.run(cmd)
+        req.block()
         soup = BeautifulSoup(req.out, "html.parser")
         req.kill()
         self.soup = soup
