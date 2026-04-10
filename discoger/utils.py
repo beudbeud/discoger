@@ -66,6 +66,7 @@ def check_sales(self, release_id, type_sell):
         url = f"{self.discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
     cmd = "lynx -source -accept_all_cookies '%s'" % url
     req = delegator.run(cmd)
+    req.block()
     soup = BeautifulSoup(req.out, "html.parser")
     req.kill()
     try:
