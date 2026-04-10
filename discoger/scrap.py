@@ -1,16 +1,14 @@
 from bs4 import BeautifulSoup
 import re
 import logging
-import delegator
+import subprocess
 
 
 class DiscogsScraper:
     def __init__(self, url, d):
-        cmd = "lynx -source -accept_all_cookies %s" % url
-        req = delegator.run(cmd)
-        req.block()
-        soup = BeautifulSoup(req.out, "html.parser")
-        req.kill()
+        cmd = ["lynx", "-source", "-accept_all_cookies", url]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        soup = BeautifulSoup(result.stdout, "html.parser")
         self.soup = soup
         self.release_id = re.findall(r"\d+", soup.select("a.release-page")[0]["href"])[
             0

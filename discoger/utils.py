@@ -1,6 +1,6 @@
 import re
 import logging
-import delegator
+import subprocess
 from discoger import scrap
 from bs4 import BeautifulSoup
 
@@ -64,11 +64,9 @@ def check_sales(self, release_id, type_sell):
         url = f"{self.discogs_url}/sell/list?sort=listed%2Cdesc&limit=25&master_id={release_id}&format=Vinyl"
     else:
         url = f"{self.discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
-    cmd = "lynx -source -accept_all_cookies '%s'" % url
-    req = delegator.run(cmd)
-    req.block()
-    soup = BeautifulSoup(req.out, "html.parser")
-    req.kill()
+    cmd = ["lynx", "-source", "-accept_all_cookies", url]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    soup = BeautifulSoup(result.stdout, "html.parser")
     try:
         table = soup.find_all("table", {"class": "mpitems"})
         last_item = table[0].find_all("tr")[1]
