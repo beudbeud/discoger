@@ -67,6 +67,7 @@ def check_sales(self, release_id, type_sell):
     cmd = "lynx -source -accept_all_cookies '%s'" % url
     req = delegator.run(cmd)
     soup = BeautifulSoup(req.out, "html.parser")
+    req.kill()
     try:
         table = soup.find_all("table", {"class": "mpitems"})
         last_item = table[0].find_all("tr")[1]
