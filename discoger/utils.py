@@ -1,6 +1,5 @@
 import re
 import logging
-import subprocess
 from discoger import scrap
 from bs4 import BeautifulSoup
 
@@ -58,35 +57,51 @@ def send_msg(
 
 
 def check_sales(self, release_id, type_sell):
-    self.discogs_url = "https://www.discogs.com"
-    data_last_sell = dict()
     if type_sell == "master":
         url = f"{self.discogs_url}/sell/list?sort=listed%2Cdesc&limit=25&master_id={release_id}&format=Vinyl"
     else:
         url = f"{self.discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
-    cmd = ["lynx", "-source", "-accept_all_cookies", url]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    soup = BeautifulSoup(result.stdout, "html.parser")
     try:
-        table = soup.find_all("table", {"class": "mpitems"})
-        last_item = table[0].find_all("tr")[1]
-        item = last_item.find("a", {"class": "item_description_title"})
-        price = last_item.find("span", {"class": "price"})
-
-        data_last_sell = dict()
-        data_last_sell["id"] = re.search(r'\d+', item["href"]).group()
-        data_last_sell["price"] = "{} {}".format(price["data-currency"], price["data-pricevalue"])
-        data_last_sell["url"] = "https://www.discogs.com{}".format(item["href"])
-        if (
-            self.disable_unofficial
-            and len(re.findall("Unofficial", item.get_text())) > 0
-        ):
-            return None
-        else:
-            return data_last_sell
+        response = self.http.get(url, timeout=10)
+        response.raise_for_status()
     except Exception as e:
-        logging.debug("%s: for %s item" % (e, release_id))
+        logging.debug("Network error for release %s: %s" % (release_id, e))
         return None
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    table = soup.find_all("table", {"class": "mpitems"})
+    if not table:
+        logging.warning("Scraping structure changed: table.mpitems not found for release %s (%s)" % (release_id, url))
+        return None
+
+    rows = table[0].find_all("tr")
+    if len(rows) < 2:
+        logging.debug("No listings in table for release %s" % release_id)
+        return None
+
+    last_item = rows[1]
+    item = last_item.find("a", {"class": "item_description_title"})
+    price = last_item.find("span", {"class": "price"})
+
+    if not item:
+        logging.warning("Scraping structure changed: a.item_description_title not found for release %s (%s)" % (release_id, url))
+        return None
+    if not price:
+        logging.warning("Scraping structure changed: span.price not found for release %s (%s)" % (release_id, url))
+        return None
+    if "data-currency" not in price.attrs or "data-pricevalue" not in price.attrs:
+        logging.warning("Scraping structure changed: span.price missing data attributes for release %s (%s)" % (release_id, url))
+        return None
+
+    if self.disable_unofficial and "Unofficial" in item.get_text():
+        return None
+
+    return {
+        "id": re.search(r'\d+', item["href"]).group(),
+        "price": "{} {}".format(price["data-currency"], price["data-pricevalue"]),
+        "url": "https://www.discogs.com{}".format(item["href"]),
+    }
 
 
 def scrap_data(self, chat_id, db):
@@ -101,7 +116,7 @@ def scrap_data(self, chat_id, db):
             if not item["last_sell"] or (
                 item["last_sell"]["id"] != data_last_sell["id"]
             ):
-                parse = scrap.DiscogsScraper(data_last_sell["url"], self.d)
+                parse = scrap.DiscogsScraper(data_last_sell["url"], self.d, self.http)
                 logging.info("New item for %s - %s" % (item["artist"], item["title"]))
                 text = """
 **New release for:**
