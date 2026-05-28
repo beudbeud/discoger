@@ -27,7 +27,7 @@ class Discoger:
             self.config = configparser.ConfigParser()
             self.config.read(self.config_file)
         else:
-            logging.error("No config file, please create a config file follwing example")
+            logging.error("No config file, please create a config file following the example")
             raise SystemExit()
 
         if not self.database_dir.exists():
@@ -63,10 +63,11 @@ class Discoger:
             logging.error("Error: Unable to authenticate.")
             raise SystemExit(e)
 
-        # Un lock par chat_id pour protéger les accès concurrents à YamlDB.
-        # _db_locks_mutex protège le dict lui-même lors de la création de nouveaux locks.
         self._db_locks = {}
         self._db_locks_mutex = threading.Lock()
+
+        self._check_thread = None
+        self._check_thread_lock = threading.Lock()
 
         self.http = cloudscraper.create_scraper()
 
@@ -78,7 +79,6 @@ class Discoger:
     # -------------------------------------------------------------------------
 
     def get_db_lock(self, chat_id):
-        """Retourne le lock associé à un chat_id, en le créant si besoin."""
         with self._db_locks_mutex:
             if chat_id not in self._db_locks:
                 self._db_locks[chat_id] = threading.Lock()
@@ -102,7 +102,7 @@ class Discoger:
         for key, description in self.commands.items():
             help_text += "%s %s\n" % (key, description)
         utils.send_msg(
-            self, chat_id, help_text,
+            self.bot, chat_id, help_text,
             reply_markup=markup,
             disable_web_page_preview=True,
         )
@@ -128,10 +128,10 @@ class Discoger:
             db = self._open_db(chat_id)
             has_list = bool(db.get("release_list"))
         if has_list:
-            utils.send_msg(self, chat_id, "Okay i'm checking your following list")
-            self._check_discogs(chat_id)
+            utils.send_msg(self.bot, chat_id, "Okay i'm checking your following list")
+            self._check_user(chat_id)
         else:
-            utils.send_msg(self, chat_id, "Your following list is empty, send me a url first")
+            utils.send_msg(self.bot, chat_id, "Your following list is empty, send me a url first")
 
     def _handle_add_release(self, message):
         chat_id = message.chat.id
@@ -143,16 +143,16 @@ class Discoger:
                 release = scrap.DiscogerInfo(url, self.d, release_id)
                 db["release_list"].append(release.release_info)
                 db.save()
-                utils.send_msg(self, chat_id, "%s is added in following list" % release_id)
+                utils.send_msg(self.bot, chat_id, "%s is added in following list" % release_id)
             else:
-                utils.send_msg(self, chat_id, "%s is already in following list" % release_id)
+                utils.send_msg(self.bot, chat_id, "%s is already in following list" % release_id)
 
     def _handle_list(self, message):
         chat_id = message.chat.id
         with self.get_db_lock(chat_id):
             db = self._open_db(chat_id)
             if not db.get("release_list"):
-                utils.send_msg(self, chat_id, "Your following list is empty, send me a url first")
+                utils.send_msg(self.bot, chat_id, "Your following list is empty, send me a url first")
                 return
             lines = []
             for idx, item in enumerate(db["release_list"]):
@@ -166,7 +166,7 @@ class Discoger:
                     item["release_id"],
                 ))
         for chunk in util.split_string("\n".join(lines), 3000):
-            utils.send_msg(self, chat_id, chunk, disable_web_page_preview=True)
+            utils.send_msg(self.bot, chat_id, chunk, disable_web_page_preview=True)
 
     def _handle_delete(self, message):
         answer = self.bot.reply_to(message, "Which item do you want to delete from your list?")
@@ -174,12 +174,19 @@ class Discoger:
 
     def _process_delete_step(self, message):
         chat_id = message.chat.id
-        id_item = message.text
+        try:
+            idx = int(message.text)
+        except ValueError:
+            utils.send_msg(self.bot, chat_id, "Please send a valid number.")
+            return
         with self.get_db_lock(chat_id):
             db = self._open_db(chat_id)
-            db["release_list"].pop(int(id_item))
+            if idx < 0 or idx >= len(db["release_list"]):
+                utils.send_msg(self.bot, chat_id, "Index %s is out of range." % idx)
+                return
+            db["release_list"].pop(idx)
             db.save()
-        utils.send_msg(self, chat_id, "%s is deleted from following list" % id_item)
+        utils.send_msg(self.bot, chat_id, "%s is deleted from following list" % idx)
 
     def _handle_wantlist(self, message):
         chat_id = message.chat.id
@@ -209,33 +216,57 @@ class Discoger:
                         logging.info("Item %s added in following list" % i.id)
                     else:
                         logging.info("Item %s already in your following list" % i.id)
-            utils.send_msg(self, chat_id, "Your wantlist is synchronized")
+            utils.send_msg(self.bot, chat_id, "Your wantlist is synchronized")
             with self.get_db_lock(chat_id):
                 db = self._open_db(chat_id)
                 if not db.get("wantlist_user"):
                     db["wantlist_user"] = username
                     db.save()
         except discogs_client.exceptions.DiscogsAPIError as e:
-            utils.send_msg(self, chat_id, "Error, %s" % e)
+            utils.send_msg(self.bot, chat_id, "Error, %s" % e)
 
     # -------------------------------------------------------------------------
-    # Scheduler
+    # Scheduler / check logic
     # -------------------------------------------------------------------------
 
-    def _check_discogs(self, chat_id=None):
-        if chat_id:
-            logging.info("Check user list %s" % chat_id)
+    def _check_user(self, chat_id):
+        logging.info("Check user list %s" % chat_id)
+
+        with self.get_db_lock(chat_id):
+            db = self._open_db(chat_id)
+            release_list = list(db.get("release_list") or [])
+            stored_chat_id = db.get("chat_id") or chat_id
+
+        if not release_list:
+            return
+
+        updates = utils.scrap_data(
+            self.d, self.http, self.discogs_url, self.disable_unofficial,
+            self.bot, stored_chat_id, release_list,
+        )
+
+        if updates:
             with self.get_db_lock(chat_id):
                 db = self._open_db(chat_id)
-                utils.scrap_data(self, chat_id, db)
-        else:
-            logging.info("Check all lists")
-            for x in self.database_dir.iterdir():
-                chat_id = re.findall(r"\d+", str(x))[0]
-                logging.info("Check user list %s" % chat_id)
-                with self.get_db_lock(chat_id):
-                    db = self._open_db(chat_id)
-                    utils.scrap_data(self, chat_id, db)
+                for i, item in enumerate(db["release_list"]):
+                    if item["release_id"] in updates:
+                        db["release_list"][i]["last_sell"] = updates[item["release_id"]]
+                db.save()
+
+    def _check_discogs(self):
+        logging.info("Check all lists")
+        for x in self.database_dir.iterdir():
+            match = re.search(r"\d+", str(x))
+            if match:
+                self._check_user(match.group())
+
+    def _start_check(self):
+        with self._check_thread_lock:
+            if self._check_thread and self._check_thread.is_alive():
+                logging.warning("Previous check still running, skipping this interval")
+                return
+            self._check_thread = threading.Thread(target=self._check_discogs, daemon=True)
+            self._check_thread.start()
 
     # -------------------------------------------------------------------------
     # Wiring
@@ -288,9 +319,7 @@ class Discoger:
                 break
 
     def _run(self):
-        schedule.every(int(self.config["DEFAULT"]["schedule_time"])).minutes.do(
-            lambda: threading.Thread(target=self._check_discogs).start()
-        )
+        schedule.every(int(self.config["DEFAULT"]["schedule_time"])).minutes.do(self._start_check)
         polling_thread = threading.Thread(target=self._bot_polling, daemon=True)
         polling_thread.start()
         while True:
