@@ -4,6 +4,15 @@ import discogs_client
 from bs4 import BeautifulSoup
 
 
+def fetch_image(d, release_id):
+    try:
+        info = d.release(release_id)
+        return info.images[0]["uri"] if info.images else None
+    except Exception as e:
+        logging.warning("Could not fetch image for release %s: %s" % (release_id, e))
+        return None
+
+
 def get_suggestion_price(d, release_id):
     try:
         _info = d.release(release_id)

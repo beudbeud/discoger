@@ -298,6 +298,23 @@ class Discoger:
         if not release_list:
             return
 
+        image_updates = {}
+        for item in release_list:
+            if not item.get("image"):
+                image = scrap.fetch_image(self.d, item["release_id"])
+                if image:
+                    item["image"] = image
+                    image_updates[item["release_id"]] = image
+                    logging.info("Fetched missing image for release %s" % item["release_id"])
+
+        if image_updates:
+            with self.get_db_lock(chat_id):
+                db = self._open_db(chat_id)
+                for i, item in enumerate(db["release_list"]):
+                    if item["release_id"] in image_updates:
+                        db["release_list"][i]["image"] = image_updates[item["release_id"]]
+                db.save()
+
         updates = self._process_releases(stored_chat_id, release_list)
 
         if updates:
