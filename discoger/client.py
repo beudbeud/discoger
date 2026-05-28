@@ -9,7 +9,6 @@ import time
 import re
 import cloudscraper
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from yamldb.YamlDB import YamlDB
 from pathlib import Path
 from time import sleep
@@ -229,68 +228,64 @@ class Discoger:
     # -------------------------------------------------------------------------
 
     def _process_releases(self, chat_id, release_list):
-        """Check all releases in parallel, notify on new listings.
+        """Check all releases sequentially, notify on new listings.
 
         Returns (updates: dict {release_id: data}, bot_blocked: bool).
         bot_blocked is True if a send attempt revealed the user blocked the bot;
         in that case the caller should delete the user's DB.
         """
-        def check_one(item):
-            type_sell = item.get("type") or "release"
-            return scrap.check_sales(
-                http, self.discogs_url, self.disable_unofficial,
-                item["release_id"], type_sell,
-            )
-
         http = cloudscraper.create_scraper()
-
         updates = {}
         bot_blocked = False
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            future_to_item = {pool.submit(check_one, item): item for item in release_list}
-            for future in as_completed(future_to_item):
-                if bot_blocked:
-                    continue
-                item = future_to_item[future]
-                try:
-                    data_last_sell = future.result()
-                except Exception as e:
-                    logging.error("Error checking release %s: %s" % (item["release_id"], e))
-                    continue
 
-                if data_last_sell:
-                    if not item["last_sell"] or int(data_last_sell["id"]) > int(item["last_sell"]["id"]):
-                        logging.info("New item for %s - %s" % (item["artist"], item["title"]))
-                        suggestion = scrap.get_suggestion_price(self.d, item["release_id"])
-                        text = (
-                            "**New release for:**\n"
-                            "%s - %s\n"
-                            "Price: %s\n"
-                            "Recommended price: %s\n"
-                            "Media: %s\n"
-                            "Sleeve: %s\n"
-                            "Shipping from: %s\n"
-                            "%s"
-                        ) % (
-                            item["artist"],
-                            item["title"],
-                            data_last_sell["price"],
-                            suggestion,
-                            data_last_sell["media_condition"],
-                            data_last_sell["sleeve_condition"],
-                            data_last_sell["shipping_from"],
-                            data_last_sell["url"],
-                        )
-                        sent = utils.send_msg(self.bot, chat_id, text, photo=item.get("image") or None,
-                                              disable_web_page_preview=not item.get("image"))
-                        if not sent:
-                            bot_blocked = True
-                            continue
-                        updates[item["release_id"]] = data_last_sell
-                    else:
-                        logging.info("Not new item for %s - %s" % (item["artist"], item["title"]))
+        for item in release_list:
+            if bot_blocked:
+                break
+            type_sell = item.get("type") or "release"
+            try:
+                data_last_sell = scrap.check_sales(
+                    http, self.discogs_url, self.disable_unofficial,
+                    item["release_id"], type_sell,
+                )
+            except Exception as e:
+                logging.error("Error checking release %s: %s" % (item["release_id"], e))
+                continue
+
+            if data_last_sell:
+                if not item["last_sell"] or int(data_last_sell["id"]) > int(item["last_sell"]["id"]):
+                    logging.info("New item for %s - %s" % (item["artist"], item["title"]))
+                    suggestion = scrap.get_suggestion_price(self.d, item["release_id"])
+                    text = (
+                        "**New release for:**\n"
+                        "%s - %s\n"
+                        "Price: %s\n"
+                        "Recommended price: %s\n"
+                        "Media: %s\n"
+                        "Sleeve: %s\n"
+                        "Shipping from: %s\n"
+                        "%s"
+                    ) % (
+                        item["artist"],
+                        item["title"],
+                        data_last_sell["price"],
+                        suggestion,
+                        data_last_sell["media_condition"],
+                        data_last_sell["sleeve_condition"],
+                        data_last_sell["shipping_from"],
+                        data_last_sell["url"],
+                    )
+                    sent = utils.send_msg(self.bot, chat_id, text, photo=item.get("image") or None,
+                                          disable_web_page_preview=not item.get("image"))
+                    if not sent:
+                        bot_blocked = True
+                        break
+                    updates[item["release_id"]] = data_last_sell
                 else:
-                    logging.info("Nothing available for %s - %s" % (item["artist"], item["title"]))
+                    logging.info("Not new item for %s - %s" % (item["artist"], item["title"]))
+            else:
+                logging.info("Nothing available for %s - %s" % (item["artist"], item["title"]))
+
+            time.sleep(1)
 
         return updates, bot_blocked
 
