@@ -9,6 +9,7 @@ import time
 import re
 import cloudscraper
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from yamldb.YamlDB import YamlDB
 from pathlib import Path
 from time import sleep
@@ -75,7 +76,7 @@ class Discoger:
         self._run()
 
     # -------------------------------------------------------------------------
-    # Helpers
+    # DB helpers
     # -------------------------------------------------------------------------
 
     def get_db_lock(self, chat_id):
@@ -86,6 +87,10 @@ class Discoger:
 
     def _open_db(self, chat_id) -> YamlDB:
         return YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
+
+    # -------------------------------------------------------------------------
+    # Telegram handlers
+    # -------------------------------------------------------------------------
 
     def _send_help_keyboard(self, chat_id):
         markup = types.ReplyKeyboardMarkup()
@@ -106,10 +111,6 @@ class Discoger:
             reply_markup=markup,
             disable_web_page_preview=True,
         )
-
-    # -------------------------------------------------------------------------
-    # Handlers
-    # -------------------------------------------------------------------------
 
     def _handle_start(self, message):
         chat_id = message.chat.id
@@ -229,6 +230,63 @@ class Discoger:
     # Scheduler / check logic
     # -------------------------------------------------------------------------
 
+    def _process_releases(self, chat_id, release_list):
+        """Check all releases in parallel, notify on new listings.
+        Returns dict {release_id: data_last_sell} for items that need a DB update.
+        """
+        def check_one(item):
+            type_sell = item.get("type") or "release"
+            return scrap.check_sales(
+                self.http, self.discogs_url, self.disable_unofficial,
+                item["release_id"], type_sell,
+            )
+
+        updates = {}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            future_to_item = {pool.submit(check_one, item): item for item in release_list}
+            for future in as_completed(future_to_item):
+                item = future_to_item[future]
+                try:
+                    data_last_sell = future.result()
+                except Exception as e:
+                    logging.error("Error checking release %s: %s" % (item["release_id"], e))
+                    continue
+
+                if data_last_sell:
+                    if not item["last_sell"] or int(data_last_sell["id"]) > int(item["last_sell"]["id"]):
+                        logging.info("New item for %s - %s" % (item["artist"], item["title"]))
+                        suggestion = scrap.get_suggestion_price(self.d, item["release_id"])
+                        text = (
+                            "**New release for:**\n"
+                            "%s - %s\n"
+                            "Price: %s\n"
+                            "Recommended price: %s\n"
+                            "Media: %s\n"
+                            "Sleeve: %s\n"
+                            "Shipping from: %s\n"
+                            "%s"
+                        ) % (
+                            item["artist"],
+                            item["title"],
+                            data_last_sell["price"],
+                            suggestion,
+                            data_last_sell["media_condition"],
+                            data_last_sell["sleeve_condition"],
+                            data_last_sell["shipping_from"],
+                            data_last_sell["url"],
+                        )
+                        if "image" in item:
+                            utils.send_msg(self.bot, chat_id, text, photo=item["image"])
+                        else:
+                            utils.send_msg(self.bot, chat_id, text, disable_web_page_preview=True)
+                        updates[item["release_id"]] = data_last_sell
+                    else:
+                        logging.info("Not new item for %s - %s" % (item["artist"], item["title"]))
+                else:
+                    logging.info("Nothing available for %s - %s" % (item["artist"], item["title"]))
+
+        return updates
+
     def _check_user(self, chat_id):
         logging.info("Check user list %s" % chat_id)
 
@@ -240,10 +298,7 @@ class Discoger:
         if not release_list:
             return
 
-        updates = utils.scrap_data(
-            self.d, self.http, self.discogs_url, self.disable_unofficial,
-            self.bot, stored_chat_id, release_list,
-        )
+        updates = self._process_releases(stored_chat_id, release_list)
 
         if updates:
             with self.get_db_lock(chat_id):
