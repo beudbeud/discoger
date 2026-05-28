@@ -40,9 +40,7 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
 
     table = soup.find_all("table", {"class": "mpitems"})
     if not table:
-        logging.warning(
-            "Scraping structure changed: table.mpitems not found for release %s (%s)" % (release_id, url)
-        )
+        logging.debug("No listings found for release %s" % release_id)
         return None
 
     rows = table[0].find_all("tr")

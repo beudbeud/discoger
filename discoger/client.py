@@ -119,7 +119,8 @@ class Discoger:
             if not db.get("release_list"):
                 db["release_list"] = list()
                 db["chat_id"] = chat_id
-                db.save()
+            db["bot_blocked"] = False
+            db.save()
         self.bot.reply_to(message, "Hi there, I am Discoger bot")
         self._send_help_keyboard(chat_id)
 
@@ -230,9 +231,14 @@ class Discoger:
     # Scheduler / check logic
     # -------------------------------------------------------------------------
 
-    def _process_releases(self, chat_id, release_list):
+    def _process_releases(self, chat_id, release_list, notify=True):
         """Check all releases in parallel, notify on new listings.
-        Returns dict {release_id: data_last_sell} for items that need a DB update.
+
+        notify=False skips Telegram sends (user blocked the bot) but still
+        tracks new listings so last_sell stays current.
+
+        Returns (updates: dict {release_id: data}, bot_blocked: bool).
+        bot_blocked is True if a send attempt revealed the user blocked the bot.
         """
         def check_one(item):
             type_sell = item.get("type") or "release"
@@ -242,6 +248,7 @@ class Discoger:
             )
 
         updates = {}
+        bot_blocked = False
         with ThreadPoolExecutor(max_workers=4) as pool:
             future_to_item = {pool.submit(check_one, item): item for item in release_list}
             for future in as_completed(future_to_item):
@@ -255,37 +262,38 @@ class Discoger:
                 if data_last_sell:
                     if not item["last_sell"] or int(data_last_sell["id"]) > int(item["last_sell"]["id"]):
                         logging.info("New item for %s - %s" % (item["artist"], item["title"]))
-                        suggestion = scrap.get_suggestion_price(self.d, item["release_id"])
-                        text = (
-                            "**New release for:**\n"
-                            "%s - %s\n"
-                            "Price: %s\n"
-                            "Recommended price: %s\n"
-                            "Media: %s\n"
-                            "Sleeve: %s\n"
-                            "Shipping from: %s\n"
-                            "%s"
-                        ) % (
-                            item["artist"],
-                            item["title"],
-                            data_last_sell["price"],
-                            suggestion,
-                            data_last_sell["media_condition"],
-                            data_last_sell["sleeve_condition"],
-                            data_last_sell["shipping_from"],
-                            data_last_sell["url"],
-                        )
-                        if "image" in item:
-                            utils.send_msg(self.bot, chat_id, text, photo=item["image"])
-                        else:
-                            utils.send_msg(self.bot, chat_id, text, disable_web_page_preview=True)
+                        if notify and not bot_blocked:
+                            suggestion = scrap.get_suggestion_price(self.d, item["release_id"])
+                            text = (
+                                "**New release for:**\n"
+                                "%s - %s\n"
+                                "Price: %s\n"
+                                "Recommended price: %s\n"
+                                "Media: %s\n"
+                                "Sleeve: %s\n"
+                                "Shipping from: %s\n"
+                                "%s"
+                            ) % (
+                                item["artist"],
+                                item["title"],
+                                data_last_sell["price"],
+                                suggestion,
+                                data_last_sell["media_condition"],
+                                data_last_sell["sleeve_condition"],
+                                data_last_sell["shipping_from"],
+                                data_last_sell["url"],
+                            )
+                            sent = utils.send_msg(self.bot, chat_id, text, photo=item.get("image") or None,
+                                                  disable_web_page_preview=not item.get("image"))
+                            if not sent:
+                                bot_blocked = True
                         updates[item["release_id"]] = data_last_sell
                     else:
                         logging.info("Not new item for %s - %s" % (item["artist"], item["title"]))
                 else:
                     logging.info("Nothing available for %s - %s" % (item["artist"], item["title"]))
 
-        return updates
+        return updates, bot_blocked
 
     def _check_user(self, chat_id):
         logging.info("Check user list %s" % chat_id)
@@ -294,6 +302,7 @@ class Discoger:
             db = self._open_db(chat_id)
             release_list = list(db.get("release_list") or [])
             stored_chat_id = db.get("chat_id") or chat_id
+            bot_blocked = db.get("bot_blocked", False)
 
         if not release_list:
             return
@@ -315,14 +324,16 @@ class Discoger:
                         db["release_list"][i]["image"] = image_updates[item["release_id"]]
                 db.save()
 
-        updates = self._process_releases(stored_chat_id, release_list)
+        updates, newly_blocked = self._process_releases(stored_chat_id, release_list, notify=not bot_blocked)
 
-        if updates:
+        if updates or newly_blocked:
             with self.get_db_lock(chat_id):
                 db = self._open_db(chat_id)
                 for i, item in enumerate(db["release_list"]):
                     if item["release_id"] in updates:
                         db["release_list"][i]["last_sell"] = updates[item["release_id"]]
+                if newly_blocked:
+                    db["bot_blocked"] = True
                 db.save()
 
     def _check_discogs(self):
