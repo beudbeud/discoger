@@ -33,7 +33,7 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
         response = http.get(url, timeout=10)
         response.raise_for_status()
     except Exception as e:
-        logging.debug("Network error for release %s: %s" % (release_id, e))
+        logging.warning("Network error for release %s: %s" % (release_id, e))
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")

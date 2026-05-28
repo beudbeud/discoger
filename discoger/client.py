@@ -70,8 +70,6 @@ class Discoger:
         self._check_thread = None
         self._check_thread_lock = threading.Lock()
 
-        self.http = cloudscraper.create_scraper()
-
         self._register_handlers()
         self._run()
 
@@ -240,9 +238,11 @@ class Discoger:
         def check_one(item):
             type_sell = item.get("type") or "release"
             return scrap.check_sales(
-                self.http, self.discogs_url, self.disable_unofficial,
+                http, self.discogs_url, self.disable_unofficial,
                 item["release_id"], type_sell,
             )
+
+        http = cloudscraper.create_scraper()
 
         updates = {}
         bot_blocked = False
