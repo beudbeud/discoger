@@ -64,6 +64,9 @@ class Discoger:
             logging.error("Error: Unable to authenticate.")
             raise SystemExit(e)
 
+        # ponytail: long-lived session like v2.4.0; renewed only after Cloudflare failures
+        self.http = cloudscraper.create_scraper()
+
         self._db_locks = {}
         self._db_locks_mutex = threading.Lock()
 
@@ -235,7 +238,6 @@ class Discoger:
         bot_blocked is True if a send attempt revealed the user blocked the bot;
         in that case the caller should delete the user's DB.
         """
-        http = cloudscraper.create_scraper()
         updates = {}
         bot_blocked = False
         stats = {"checked": 0, "errors": 0, "cf_errors": 0}
@@ -248,7 +250,7 @@ class Discoger:
             stats["checked"] += 1
             try:
                 data_last_sell = scrap.check_sales(
-                    http, self.discogs_url, self.disable_unofficial,
+                    self.http, self.discogs_url, self.disable_unofficial,
                     item["release_id"], type_sell,
                 )
             except Exception as e:
@@ -361,6 +363,9 @@ class Discoger:
             "Check cycle done: %s/%s checks failed (%s Cloudflare)"
             % (total["errors"], total["checked"], total["cf_errors"])
         )
+        if total["cf_errors"]:
+            logging.warning("Renewing cloudscraper session after Cloudflare failures")
+            self.http = cloudscraper.create_scraper()
         if total["errors"] and self.admin_chat_id:
             utils.send_msg(
                 self.bot, self.admin_chat_id,
