@@ -50,7 +50,7 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
             )
             time.sleep(2)
         response.raise_for_status()
-        logging.info(
+        logging.debug(
             "Cloudflare check OK for release %s (status %s)"
             % (release_id, response.status_code)
         )

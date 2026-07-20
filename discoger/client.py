@@ -65,9 +65,7 @@ class Discoger:
             raise SystemExit(e)
 
         # ponytail: long-lived session, renewed only after Cloudflare failures.
-        # curl_cffi firefox impersonation: chrome profile gets intermittent 403s
-        # on /sell/list (masters), firefox passes first try on both endpoints.
-        self.http = curl_requests.Session(impersonate="firefox")
+        self.http = self._new_session()
 
         self._db_locks = {}
         self._db_locks_mutex = threading.Lock()
@@ -77,6 +75,12 @@ class Discoger:
 
         self._register_handlers()
         self._run()
+
+    @staticmethod
+    def _new_session():
+        # curl_cffi firefox impersonation: chrome profile gets intermittent 403s
+        # on /sell/list (masters), firefox passes first try on both endpoints.
+        return curl_requests.Session(impersonate="firefox")
 
     # -------------------------------------------------------------------------
     # DB helpers
@@ -131,25 +135,37 @@ class Discoger:
         with self.get_db_lock(chat_id):
             db = self._open_db(chat_id)
             has_list = bool(db.get("release_list"))
-        if has_list:
-            utils.send_msg(self.bot, chat_id, "Okay i'm checking your following list")
-            self._check_user(chat_id)
-        else:
+        if not has_list:
             utils.send_msg(self.bot, chat_id, "Your following list is empty, send me a url first")
+            return
+        # ponytail: reuse the scheduled-check thread slot so only one check
+        # ever uses self.http at a time (curl session shared across threads)
+        with self._check_thread_lock:
+            if self._check_thread and self._check_thread.is_alive():
+                utils.send_msg(self.bot, chat_id, "A check is already running, try again in a few minutes")
+                return
+            utils.send_msg(self.bot, chat_id, "Okay i'm checking your following list")
+            self._check_thread = threading.Thread(target=self._check_user, args=(chat_id,), daemon=True)
+            self._check_thread.start()
 
     def _handle_add_release(self, message):
         chat_id = message.chat.id
         url = message.text
         release_id = re.findall(r"\d+", url)[0]
-        with self.get_db_lock(chat_id):
-            db = self._open_db(chat_id)
-            if not db.search("release_list[?release_id=='%s']" % release_id):
-                release = scrap.DiscogerInfo(url, self.d, release_id)
-                db["release_list"].append(release.release_info)
-                db.save()
-                utils.send_msg(self.bot, chat_id, "%s is added in following list" % release_id)
-            else:
-                utils.send_msg(self.bot, chat_id, "%s is already in following list" % release_id)
+        try:
+            with self.get_db_lock(chat_id):
+                db = self._open_db(chat_id)
+                if not db.search("release_list[?release_id=='%s']" % release_id):
+                    release = scrap.DiscogerInfo(url, self.d, release_id)
+                    db["release_list"] = (db.get("release_list") or []) + [release.release_info]
+                    db["chat_id"] = chat_id
+                    db.save()
+                    utils.send_msg(self.bot, chat_id, "%s is added in following list" % release_id)
+                else:
+                    utils.send_msg(self.bot, chat_id, "%s is already in following list" % release_id)
+        except Exception as e:
+            logging.error("Error adding release %s: %s" % (release_id, e))
+            utils.send_msg(self.bot, chat_id, "Error adding %s, check the url" % release_id)
 
     def _handle_list(self, message):
         chat_id = message.chat.id
@@ -210,10 +226,10 @@ class Discoger:
         try:
             user_info = self.d.user(username)
             for i in user_info.wantlist:
-                release_info = self.d.release(i.id)
                 with self.get_db_lock(chat_id):
                     db = self._open_db(chat_id)
                     if not db.search("release_list[?release_id=='%s']" % i.id):
+                        release_info = self.d.release(i.id)
                         release = scrap.DiscogerInfo(release_info.url, self.d, str(i.id))
                         db["release_list"].append(release.release_info)
                         db.save()
@@ -367,7 +383,7 @@ class Discoger:
         )
         if total["cf_errors"]:
             logging.warning("Renewing HTTP session after Cloudflare failures")
-            self.http = curl_requests.Session(impersonate="firefox")
+            self.http = self._new_session()
         if total["errors"] and self.admin_chat_id:
             utils.send_msg(
                 self.bot, self.admin_chat_id,

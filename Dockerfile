@@ -1,15 +1,11 @@
-FROM ubuntu:24.04
+FROM python:3.12-slim
 
 LABEL maintainer="beudbeud@beudibox.fr"
-
-RUN apt update && apt install python3 lynx ca-certificates python3-pip -y
 
 COPY . /src
 
 WORKDIR /src
 
-RUN pip install -r requirements.txt --break-system-packages
-
-RUN pip install . --break-system-packages
+RUN pip install --no-cache-dir .
 
 ENTRYPOINT ["discoger"]
