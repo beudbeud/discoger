@@ -23,7 +23,10 @@ class Http:
 
     def get(self, url, timeout=None):
         self.calls += 1
-        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
+        resp = self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
 
 
 LISTING_HTML = """
@@ -84,6 +87,23 @@ def test_cloudflare_retry_recovers(monkeypatch):
     sell = scrap.check_sales(http, "https://x", True, "42", "release")
     assert sell["id"] == "123456"
     assert http.calls == 2
+
+
+def test_transient_network_error_recovers(monkeypatch):
+    monkeypatch.setattr(scrap.time, "sleep", lambda s: None)
+    http = Http(ConnectionError("curl: (35) TLS connect error"), Resp(text=LISTING_HTML))
+    sell = scrap.check_sales(http, "https://x", True, "42", "release")
+    assert sell["id"] == "123456"
+    assert http.calls == 2
+
+
+def test_persistent_network_error_raises(monkeypatch):
+    monkeypatch.setattr(scrap.time, "sleep", lambda s: None)
+    http = Http(ConnectionError("curl: (35) TLS connect error"))
+    with pytest.raises(scrap.ScrapeError) as exc:
+        scrap.check_sales(http, "https://x", True, "42", "release")
+    assert exc.value.cloudflare is False
+    assert http.calls == 3
 
 
 def test_non_cloudflare_error(monkeypatch):

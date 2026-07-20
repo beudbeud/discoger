@@ -38,9 +38,20 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
         url = f"{discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
     cloudflare = False
     try:
-        # ponytail: Cloudflare 403s are intermittent, a retry on the same session usually passes
+        # ponytail: Cloudflare 403s and TLS hiccups (parallel handshakes) are
+        # intermittent, a retry on the same session usually passes
         for attempt in range(3):
-            response = http.get(url, timeout=10)
+            try:
+                response = http.get(url, timeout=10)
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                logging.warning(
+                    "Request error for release %s (attempt %s/3): %s"
+                    % (release_id, attempt + 1, e)
+                )
+                time.sleep(2)
+                continue
             cloudflare = response.status_code == 403 or "cf-mitigated" in response.headers
             if not cloudflare:
                 break

@@ -1,5 +1,7 @@
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from curl_cffi import requests as curl_requests
 
@@ -32,18 +34,31 @@ class Checker:
     """
 
     def __init__(self, d, dbs, notify, disable_unofficial=True, admin_chat_id=None,
-                 discogs_url="https://www.discogs.com", pause=0.2):
+                 discogs_url="https://www.discogs.com", pause=0.2, workers=2):
         self.d = d
         self.dbs = dbs
         self.notify = notify
         self.disable_unofficial = disable_unofficial
         self.admin_chat_id = admin_chat_id
         self.discogs_url = discogs_url
-        # ponytail: rate pacing between checks (0.2s ≈ 30s cycle for 40 releases),
-        # raise back toward 1s if Cloudflare 403s come back; set to 0 in tests
+        # ponytail: per-worker pacing before each request; raise it (or lower
+        # workers) if Cloudflare 403s come back; set to 0 in tests
         self.pause = pause
-        # ponytail: long-lived session, renewed only after Cloudflare failures.
-        self.http = new_session()
+        # ponytail: pool threads live for the bot's lifetime, so the per-thread
+        # sessions below stay long-lived too (renewed only after CF failures)
+        self.pool = ThreadPoolExecutor(max_workers=workers)
+        self._local = threading.local()
+        self._session_epoch = 0
+
+    def _get_session(self):
+        """One long-lived session per pool thread, recreated when the epoch bumps."""
+        if getattr(self._local, "epoch", -1) != self._session_epoch:
+            self._local.http = new_session()
+            self._local.epoch = self._session_epoch
+        return self._local.http
+
+    def renew_sessions(self):
+        self._session_epoch += 1
 
     def process_releases(self, chat_id, release_list):
         """Check all releases sequentially, notify on new listings.
@@ -55,31 +70,34 @@ class Checker:
         updates = {}
         bot_blocked = False
         stats = {"checked": 0, "errors": 0, "cf_errors": 0}
-        consecutive_cf = 0
 
-        for item in release_list:
-            if bot_blocked:
-                break
-            type_sell = item.get("type") or "release"
+        def check_one(item):
+            time.sleep(self.pause)
+            return scrap.check_sales(
+                self._get_session(), self.discogs_url, self.disable_unofficial,
+                item["release_id"], item.get("type") or "release",
+            )
+
+        # ponytail: scraping runs in the pool, notifications and DB decisions
+        # stay in this thread (as_completed loop is sequential)
+        futures = {self.pool.submit(check_one, item): item for item in release_list}
+        for future in as_completed(futures):
+            if future.cancelled():
+                continue
+            item = futures[future]
             stats["checked"] += 1
             try:
-                data_last_sell = scrap.check_sales(
-                    self.http, self.discogs_url, self.disable_unofficial,
-                    item["release_id"], type_sell,
-                )
+                data_last_sell = future.result()
             except Exception as e:
                 logging.error("Error checking release %s: %s" % (item["release_id"], e))
                 stats["errors"] += 1
                 if isinstance(e, scrap.ScrapeError) and e.cloudflare:
                     stats["cf_errors"] += 1
-                    consecutive_cf += 1
-                    if consecutive_cf >= 5:
-                        logging.error("%s consecutive Cloudflare blocks, aborting cycle for user %s" % (consecutive_cf, chat_id))
-                        break
-                time.sleep(self.pause)
+                    if stats["cf_errors"] >= 5:
+                        logging.error("%s Cloudflare blocks, aborting cycle for user %s" % (stats["cf_errors"], chat_id))
+                        for f in futures:
+                            f.cancel()
                 continue
-
-            consecutive_cf = 0
 
             if data_last_sell:
                 if not item["last_sell"] or int(data_last_sell["id"]) > int(item["last_sell"]["id"]):
@@ -99,14 +117,14 @@ class Checker:
                                        disable_web_page_preview=not item.get("image"))
                     if not sent:
                         bot_blocked = True
-                        break
+                        for f in futures:
+                            f.cancel()
+                        continue
                     updates[item["release_id"]] = data_last_sell
                 else:
                     logging.info("Not new item for %s - %s" % (item["artist"], item["title"]))
             else:
                 logging.info("Nothing available for %s - %s" % (item["artist"], item["title"]))
-
-            time.sleep(self.pause)
 
         return updates, bot_blocked, stats
 
@@ -165,8 +183,8 @@ class Checker:
             % (total["errors"], total["checked"], total["cf_errors"])
         )
         if total["cf_errors"]:
-            logging.warning("Renewing HTTP session after Cloudflare failures")
-            self.http = new_session()
+            logging.warning("Renewing HTTP sessions after Cloudflare failures")
+            self.renew_sessions()
         if total["errors"] and self.admin_chat_id:
             self.notify(
                 self.admin_chat_id,

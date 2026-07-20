@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from discoger import scrap
@@ -80,17 +82,20 @@ def test_known_sell_no_notification(tmp_path, monkeypatch):
 def test_cloudflare_aborts_after_five(tmp_path, monkeypatch):
     notify = Notifier()
     checker, dbs = make_checker(tmp_path, notify)
-    seed(dbs, "111", [make_item(str(i)) for i in range(8)])
+    seed(dbs, "111", [make_item(str(i)) for i in range(50)])
 
     def blocked(*a, **k):
+        time.sleep(0.005)
         raise scrap.ScrapeError("403", cloudflare=True)
 
     monkeypatch.setattr(scrap, "check_sales", blocked)
-    monkeypatch.setattr(scrap.time, "sleep", lambda s: None)
 
     stats = checker.check_user("111")
 
-    assert stats == {"checked": 5, "errors": 5, "cf_errors": 5}
+    # parallel abort: pending checks are cancelled once 5 CF blocks are seen,
+    # in-flight ones may still land, so the exact count is nondeterministic
+    assert stats["cf_errors"] >= 5
+    assert stats["checked"] < 50
     assert notify.sent == []
 
 
