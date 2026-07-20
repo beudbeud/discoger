@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
 
 import configparser
-import discogs_client
+import functools
 import logging
-import threading
-import schedule
-import time
 import re
-from curl_cffi import requests as curl_requests
+import threading
+import time
 
-from yamldb.YamlDB import YamlDB
+import discogs_client
+import schedule
 from pathlib import Path
 from time import sleep
 from telebot import types, util, telebot
+
 from discoger import scrap, utils
+from discoger.checker import Checker
+from discoger.database import UserDatabases
 
 
 class Discoger:
     def __init__(self):
         self.home = str(Path.home())
         self.config_file = Path(self.home + "/.config/discoger/config.ini")
-        self.database_dir = Path(self.home + "/.config/discoger/databases")
         self.discogs_url = "https://www.discogs.com"
 
         if self.config_file.exists():
@@ -30,15 +31,8 @@ class Discoger:
             logging.error("No config file, please create a config file following the example")
             raise SystemExit()
 
-        if not self.database_dir.exists():
-            self.database_dir.mkdir(parents=True, exist_ok=True)
-
         self.token = self.config["telegram"]["token"]
-        self.admin_chat_id = self.config["telegram"].get("admin_chat_id", fallback=None)
         self.secret = self.config["discogs"]["secret"]
-        self.disable_unofficial = self.config["DEFAULT"].getboolean(
-            "disable_unofficial", fallback=True
-        )
         self.bot = telebot.TeleBot(self.token)
         self.log_level = self.config["DEFAULT"].get("log_level", fallback="INFO")
 
@@ -64,36 +58,21 @@ class Discoger:
             logging.error("Error: Unable to authenticate.")
             raise SystemExit(e)
 
-        # ponytail: long-lived session, renewed only after Cloudflare failures.
-        self.http = self._new_session()
-
-        self._db_locks = {}
-        self._db_locks_mutex = threading.Lock()
+        self.dbs = UserDatabases(self.home + "/.config/discoger/databases")
+        self.checker = Checker(
+            d=self.d,
+            dbs=self.dbs,
+            notify=functools.partial(utils.send_msg, self.bot),
+            disable_unofficial=self.config["DEFAULT"].getboolean("disable_unofficial", fallback=True),
+            admin_chat_id=self.config["telegram"].get("admin_chat_id", fallback=None),
+            discogs_url=self.discogs_url,
+        )
 
         self._check_thread = None
         self._check_thread_lock = threading.Lock()
 
         self._register_handlers()
         self._run()
-
-    @staticmethod
-    def _new_session():
-        # curl_cffi firefox impersonation: chrome profile gets intermittent 403s
-        # on /sell/list (masters), firefox passes first try on both endpoints.
-        return curl_requests.Session(impersonate="firefox")
-
-    # -------------------------------------------------------------------------
-    # DB helpers
-    # -------------------------------------------------------------------------
-
-    def get_db_lock(self, chat_id):
-        with self._db_locks_mutex:
-            if chat_id not in self._db_locks:
-                self._db_locks[chat_id] = threading.Lock()
-            return self._db_locks[chat_id]
-
-    def _open_db(self, chat_id) -> YamlDB:
-        return YamlDB(filename="%s/%s.yaml" % (self.database_dir, chat_id))
 
     # -------------------------------------------------------------------------
     # Telegram handlers
@@ -121,8 +100,8 @@ class Discoger:
 
     def _handle_start(self, message):
         chat_id = message.chat.id
-        with self.get_db_lock(chat_id):
-            db = self._open_db(chat_id)
+        with self.dbs.lock(chat_id):
+            db = self.dbs.open(chat_id)
             if not db.get("release_list"):
                 db["release_list"] = list()
                 db["chat_id"] = chat_id
@@ -132,29 +111,26 @@ class Discoger:
 
     def _handle_check(self, message):
         chat_id = message.chat.id
-        with self.get_db_lock(chat_id):
-            db = self._open_db(chat_id)
+        with self.dbs.lock(chat_id):
+            db = self.dbs.open(chat_id)
             has_list = bool(db.get("release_list"))
         if not has_list:
             utils.send_msg(self.bot, chat_id, "Your following list is empty, send me a url first")
             return
-        # ponytail: reuse the scheduled-check thread slot so only one check
-        # ever uses self.http at a time (curl session shared across threads)
-        with self._check_thread_lock:
-            if self._check_thread and self._check_thread.is_alive():
-                utils.send_msg(self.bot, chat_id, "A check is already running, try again in a few minutes")
-                return
+        # ponytail: single check thread slot shared with the scheduled cycle,
+        # so only one check ever uses the curl session at a time
+        if self._start_check(self.checker.check_user, chat_id):
             utils.send_msg(self.bot, chat_id, "Okay i'm checking your following list")
-            self._check_thread = threading.Thread(target=self._check_user, args=(chat_id,), daemon=True)
-            self._check_thread.start()
+        else:
+            utils.send_msg(self.bot, chat_id, "A check is already running, try again in a few minutes")
 
     def _handle_add_release(self, message):
         chat_id = message.chat.id
         url = message.text
         release_id = re.findall(r"\d+", url)[0]
         try:
-            with self.get_db_lock(chat_id):
-                db = self._open_db(chat_id)
+            with self.dbs.lock(chat_id):
+                db = self.dbs.open(chat_id)
                 if not db.search("release_list[?release_id=='%s']" % release_id):
                     release = scrap.DiscogerInfo(url, self.d, release_id)
                     db["release_list"] = (db.get("release_list") or []) + [release.release_info]
@@ -169,8 +145,8 @@ class Discoger:
 
     def _handle_list(self, message):
         chat_id = message.chat.id
-        with self.get_db_lock(chat_id):
-            db = self._open_db(chat_id)
+        with self.dbs.lock(chat_id):
+            db = self.dbs.open(chat_id)
             if not db.get("release_list"):
                 utils.send_msg(self.bot, chat_id, "Your following list is empty, send me a url first")
                 return
@@ -199,8 +175,8 @@ class Discoger:
         except ValueError:
             utils.send_msg(self.bot, chat_id, "Please send a valid number.")
             return
-        with self.get_db_lock(chat_id):
-            db = self._open_db(chat_id)
+        with self.dbs.lock(chat_id):
+            db = self.dbs.open(chat_id)
             if idx < 0 or idx >= len(db["release_list"]):
                 utils.send_msg(self.bot, chat_id, "Index %s is out of range." % idx)
                 return
@@ -210,8 +186,8 @@ class Discoger:
 
     def _handle_wantlist(self, message):
         chat_id = message.chat.id
-        with self.get_db_lock(chat_id):
-            db = self._open_db(chat_id)
+        with self.dbs.lock(chat_id):
+            db = self.dbs.open(chat_id)
             wantlist_user = db.get("wantlist_user")
         if wantlist_user:
             message.text = wantlist_user
@@ -226,8 +202,8 @@ class Discoger:
         try:
             user_info = self.d.user(username)
             for i in user_info.wantlist:
-                with self.get_db_lock(chat_id):
-                    db = self._open_db(chat_id)
+                with self.dbs.lock(chat_id):
+                    db = self.dbs.open(chat_id)
                     if not db.search("release_list[?release_id=='%s']" % i.id):
                         release_info = self.d.release(i.id)
                         release = scrap.DiscogerInfo(release_info.url, self.d, str(i.id))
@@ -237,8 +213,8 @@ class Discoger:
                     else:
                         logging.info("Item %s already in your following list" % i.id)
             utils.send_msg(self.bot, chat_id, "Your wantlist is synchronized")
-            with self.get_db_lock(chat_id):
-                db = self._open_db(chat_id)
+            with self.dbs.lock(chat_id):
+                db = self.dbs.open(chat_id)
                 if not db.get("wantlist_user"):
                     db["wantlist_user"] = username
                     db.save()
@@ -246,158 +222,21 @@ class Discoger:
             utils.send_msg(self.bot, chat_id, "Error, %s" % e)
 
     # -------------------------------------------------------------------------
-    # Scheduler / check logic
+    # Scheduling
     # -------------------------------------------------------------------------
 
-    def _process_releases(self, chat_id, release_list):
-        """Check all releases sequentially, notify on new listings.
-
-        Returns (updates: dict {release_id: data}, bot_blocked: bool, stats: dict).
-        bot_blocked is True if a send attempt revealed the user blocked the bot;
-        in that case the caller should delete the user's DB.
-        """
-        updates = {}
-        bot_blocked = False
-        stats = {"checked": 0, "errors": 0, "cf_errors": 0}
-        consecutive_cf = 0
-
-        for item in release_list:
-            if bot_blocked:
-                break
-            type_sell = item.get("type") or "release"
-            stats["checked"] += 1
-            try:
-                data_last_sell = scrap.check_sales(
-                    self.http, self.discogs_url, self.disable_unofficial,
-                    item["release_id"], type_sell,
-                )
-            except Exception as e:
-                logging.error("Error checking release %s: %s" % (item["release_id"], e))
-                stats["errors"] += 1
-                if isinstance(e, scrap.ScrapeError) and e.cloudflare:
-                    stats["cf_errors"] += 1
-                    consecutive_cf += 1
-                    if consecutive_cf >= 5:
-                        logging.error("%s consecutive Cloudflare blocks, aborting cycle for user %s" % (consecutive_cf, chat_id))
-                        break
-                time.sleep(1)
-                continue
-
-            consecutive_cf = 0
-
-            if data_last_sell:
-                if not item["last_sell"] or int(data_last_sell["id"]) > int(item["last_sell"]["id"]):
-                    logging.info("New item for %s - %s" % (item["artist"], item["title"]))
-                    suggestion = scrap.get_suggestion_price(self.d, item["release_id"])
-                    text = (
-                        "**New release for:**\n"
-                        "%s - %s\n"
-                        "Price: %s\n"
-                        "Recommended price: %s\n"
-                        "Media: %s\n"
-                        "Sleeve: %s\n"
-                        "Shipping from: %s\n"
-                        "%s"
-                    ) % (
-                        item["artist"],
-                        item["title"],
-                        data_last_sell["price"],
-                        suggestion,
-                        data_last_sell["media_condition"],
-                        data_last_sell["sleeve_condition"],
-                        data_last_sell["shipping_from"],
-                        data_last_sell["url"],
-                    )
-                    sent = utils.send_msg(self.bot, chat_id, text, photo=item.get("image") or None,
-                                          disable_web_page_preview=not item.get("image"))
-                    if not sent:
-                        bot_blocked = True
-                        break
-                    updates[item["release_id"]] = data_last_sell
-                else:
-                    logging.info("Not new item for %s - %s" % (item["artist"], item["title"]))
-            else:
-                logging.info("Nothing available for %s - %s" % (item["artist"], item["title"]))
-
-            time.sleep(1)
-
-        return updates, bot_blocked, stats
-
-    def _check_user(self, chat_id):
-        logging.info("Check user list %s" % chat_id)
-
-        with self.get_db_lock(chat_id):
-            db = self._open_db(chat_id)
-            release_list = list(db.get("release_list") or [])
-            stored_chat_id = db.get("chat_id") or chat_id
-
-        if not release_list:
-            return {"checked": 0, "errors": 0, "cf_errors": 0}
-
-        image_updates = {}
-        for item in release_list:
-            if not item.get("image"):
-                image = scrap.fetch_image(self.d, item["release_id"])
-                if image:
-                    item["image"] = image
-                    image_updates[item["release_id"]] = image
-                    logging.info("Fetched missing image for release %s" % item["release_id"])
-
-        if image_updates:
-            with self.get_db_lock(chat_id):
-                db = self._open_db(chat_id)
-                for i, item in enumerate(db["release_list"]):
-                    if item["release_id"] in image_updates:
-                        db["release_list"][i]["image"] = image_updates[item["release_id"]]
-                db.save()
-
-        updates, bot_blocked, stats = self._process_releases(stored_chat_id, release_list)
-
-        if bot_blocked:
-            with self.get_db_lock(chat_id):
-                db_path = Path("%s/%s.yaml" % (self.database_dir, chat_id))
-                db_path.unlink(missing_ok=True)
-            logging.info("User %s blocked the bot, removed from database" % chat_id)
-        elif updates:
-            with self.get_db_lock(chat_id):
-                db = self._open_db(chat_id)
-                for i, item in enumerate(db["release_list"]):
-                    if item["release_id"] in updates:
-                        db["release_list"][i]["last_sell"] = updates[item["release_id"]]
-                db.save()
-
-        return stats
-
-    def _check_discogs(self):
-        logging.info("Check all lists")
-        total = {"checked": 0, "errors": 0, "cf_errors": 0}
-        for x in self.database_dir.iterdir():
-            match = re.search(r"\d+", str(x))
-            if match:
-                stats = self._check_user(match.group())
-                for key in total:
-                    total[key] += stats[key]
-        logging.info(
-            "Check cycle done: %s/%s checks failed (%s Cloudflare)"
-            % (total["errors"], total["checked"], total["cf_errors"])
-        )
-        if total["cf_errors"]:
-            logging.warning("Renewing HTTP session after Cloudflare failures")
-            self.http = self._new_session()
-        if total["errors"] and self.admin_chat_id:
-            utils.send_msg(
-                self.bot, self.admin_chat_id,
-                "⚠️ Discoger: %s/%s checks en échec ce cycle (dont %s Cloudflare 403)"
-                % (total["errors"], total["checked"], total["cf_errors"]),
-            )
-
-    def _start_check(self):
+    def _start_check(self, target, *args):
+        """Start target in the single check thread slot. Returns False if busy."""
         with self._check_thread_lock:
             if self._check_thread and self._check_thread.is_alive():
-                logging.warning("Previous check still running, skipping this interval")
-                return
-            self._check_thread = threading.Thread(target=self._check_discogs, daemon=True)
+                return False
+            self._check_thread = threading.Thread(target=target, args=args, daemon=True)
             self._check_thread.start()
+            return True
+
+    def _scheduled_check(self):
+        if not self._start_check(self.checker.check_cycle):
+            logging.warning("Previous check still running, skipping this interval")
 
     # -------------------------------------------------------------------------
     # Wiring
@@ -450,7 +289,7 @@ class Discoger:
                 break
 
     def _run(self):
-        schedule.every(int(self.config["DEFAULT"]["schedule_time"])).minutes.do(self._start_check)
+        schedule.every(int(self.config["DEFAULT"]["schedule_time"])).minutes.do(self._scheduled_check)
         polling_thread = threading.Thread(target=self._bot_polling, daemon=True)
         polling_thread.start()
         while True:
