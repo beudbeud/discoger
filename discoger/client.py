@@ -239,6 +239,7 @@ class Discoger:
         updates = {}
         bot_blocked = False
         stats = {"checked": 0, "errors": 0, "cf_errors": 0}
+        consecutive_cf = 0
 
         for item in release_list:
             if bot_blocked:
@@ -255,7 +256,14 @@ class Discoger:
                 stats["errors"] += 1
                 if isinstance(e, scrap.ScrapeError) and e.cloudflare:
                     stats["cf_errors"] += 1
+                    consecutive_cf += 1
+                    if consecutive_cf >= 5:
+                        logging.error("%s consecutive Cloudflare blocks, aborting cycle for user %s" % (consecutive_cf, chat_id))
+                        break
+                time.sleep(1)
                 continue
+
+            consecutive_cf = 0
 
             if data_last_sell:
                 if not item["last_sell"] or int(data_last_sell["id"]) > int(item["last_sell"]["id"]):
