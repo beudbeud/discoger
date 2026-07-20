@@ -34,6 +34,7 @@ class Discoger:
             self.database_dir.mkdir(parents=True, exist_ok=True)
 
         self.token = self.config["telegram"]["token"]
+        self.admin_chat_id = self.config["telegram"].get("admin_chat_id", fallback=None)
         self.secret = self.config["discogs"]["secret"]
         self.disable_unofficial = self.config["DEFAULT"].getboolean(
             "disable_unofficial", fallback=True
@@ -230,18 +231,20 @@ class Discoger:
     def _process_releases(self, chat_id, release_list):
         """Check all releases sequentially, notify on new listings.
 
-        Returns (updates: dict {release_id: data}, bot_blocked: bool).
+        Returns (updates: dict {release_id: data}, bot_blocked: bool, stats: dict).
         bot_blocked is True if a send attempt revealed the user blocked the bot;
         in that case the caller should delete the user's DB.
         """
         http = cloudscraper.create_scraper()
         updates = {}
         bot_blocked = False
+        stats = {"checked": 0, "errors": 0, "cf_errors": 0}
 
         for item in release_list:
             if bot_blocked:
                 break
             type_sell = item.get("type") or "release"
+            stats["checked"] += 1
             try:
                 data_last_sell = scrap.check_sales(
                     http, self.discogs_url, self.disable_unofficial,
@@ -249,6 +252,9 @@ class Discoger:
                 )
             except Exception as e:
                 logging.error("Error checking release %s: %s" % (item["release_id"], e))
+                stats["errors"] += 1
+                if isinstance(e, scrap.ScrapeError) and e.cloudflare:
+                    stats["cf_errors"] += 1
                 continue
 
             if data_last_sell:
@@ -287,7 +293,7 @@ class Discoger:
 
             time.sleep(1)
 
-        return updates, bot_blocked
+        return updates, bot_blocked, stats
 
     def _check_user(self, chat_id):
         logging.info("Check user list %s" % chat_id)
@@ -298,7 +304,7 @@ class Discoger:
             stored_chat_id = db.get("chat_id") or chat_id
 
         if not release_list:
-            return
+            return {"checked": 0, "errors": 0, "cf_errors": 0}
 
         image_updates = {}
         for item in release_list:
@@ -317,7 +323,7 @@ class Discoger:
                         db["release_list"][i]["image"] = image_updates[item["release_id"]]
                 db.save()
 
-        updates, bot_blocked = self._process_releases(stored_chat_id, release_list)
+        updates, bot_blocked, stats = self._process_releases(stored_chat_id, release_list)
 
         if bot_blocked:
             with self.get_db_lock(chat_id):
@@ -332,12 +338,27 @@ class Discoger:
                         db["release_list"][i]["last_sell"] = updates[item["release_id"]]
                 db.save()
 
+        return stats
+
     def _check_discogs(self):
         logging.info("Check all lists")
+        total = {"checked": 0, "errors": 0, "cf_errors": 0}
         for x in self.database_dir.iterdir():
             match = re.search(r"\d+", str(x))
             if match:
-                self._check_user(match.group())
+                stats = self._check_user(match.group())
+                for key in total:
+                    total[key] += stats[key]
+        logging.info(
+            "Check cycle done: %s/%s checks failed (%s Cloudflare)"
+            % (total["errors"], total["checked"], total["cf_errors"])
+        )
+        if total["errors"] and self.admin_chat_id:
+            utils.send_msg(
+                self.bot, self.admin_chat_id,
+                "⚠️ Discoger: %s/%s checks en échec ce cycle (dont %s Cloudflare 403)"
+                % (total["errors"], total["checked"], total["cf_errors"]),
+            )
 
     def _start_check(self):
         with self._check_thread_lock:

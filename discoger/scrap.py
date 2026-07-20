@@ -4,6 +4,12 @@ import discogs_client
 from bs4 import BeautifulSoup
 
 
+class ScrapeError(Exception):
+    def __init__(self, message, cloudflare=False):
+        super().__init__(message)
+        self.cloudflare = cloudflare
+
+
 def fetch_image(d, release_id):
     try:
         info = d.release(release_id)
@@ -29,12 +35,23 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
         url = f"{discogs_url}/sell/list?sort=listed%2Cdesc&limit=25&master_id={release_id}&format=Vinyl"
     else:
         url = f"{discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
+    cloudflare = False
     try:
         response = http.get(url, timeout=10)
+        cloudflare = response.status_code == 403 or "cf-mitigated" in response.headers
+        if cloudflare:
+            logging.warning(
+                "Cloudflare check FAILED for release %s (status %s, cf-ray %s)"
+                % (release_id, response.status_code, response.headers.get("cf-ray", "?"))
+            )
         response.raise_for_status()
+        logging.info(
+            "Cloudflare check OK for release %s (status %s)"
+            % (release_id, response.status_code)
+        )
     except Exception as e:
         logging.warning("Network error for release %s: %s" % (release_id, e))
-        return None
+        raise ScrapeError(str(e), cloudflare=cloudflare)
 
     soup = BeautifulSoup(response.text, "html.parser")
 
