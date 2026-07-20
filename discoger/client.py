@@ -65,9 +65,9 @@ class Discoger:
             raise SystemExit(e)
 
         # ponytail: long-lived session, renewed only after Cloudflare failures.
-        # curl_cffi with Chrome impersonation: cloudscraper no longer passes
-        # Discogs' Cloudflare challenge (403 on any fresh session).
-        self.http = curl_requests.Session(impersonate="chrome")
+        # curl_cffi firefox impersonation: chrome profile gets intermittent 403s
+        # on /sell/list (masters), firefox passes first try on both endpoints.
+        self.http = curl_requests.Session(impersonate="firefox")
 
         self._db_locks = {}
         self._db_locks_mutex = threading.Lock()
@@ -367,7 +367,7 @@ class Discoger:
         )
         if total["cf_errors"]:
             logging.warning("Renewing HTTP session after Cloudflare failures")
-            self.http = curl_requests.Session(impersonate="chrome")
+            self.http = curl_requests.Session(impersonate="firefox")
         if total["errors"] and self.admin_chat_id:
             utils.send_msg(
                 self.bot, self.admin_chat_id,
