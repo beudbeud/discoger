@@ -7,7 +7,7 @@ import threading
 import schedule
 import time
 import re
-import cloudscraper
+from curl_cffi import requests as curl_requests
 
 from yamldb.YamlDB import YamlDB
 from pathlib import Path
@@ -64,8 +64,10 @@ class Discoger:
             logging.error("Error: Unable to authenticate.")
             raise SystemExit(e)
 
-        # ponytail: long-lived session like v2.4.0; renewed only after Cloudflare failures
-        self.http = cloudscraper.create_scraper()
+        # ponytail: long-lived session, renewed only after Cloudflare failures.
+        # curl_cffi with Chrome impersonation: cloudscraper no longer passes
+        # Discogs' Cloudflare challenge (403 on any fresh session).
+        self.http = curl_requests.Session(impersonate="chrome")
 
         self._db_locks = {}
         self._db_locks_mutex = threading.Lock()
@@ -364,8 +366,8 @@ class Discoger:
             % (total["errors"], total["checked"], total["cf_errors"])
         )
         if total["cf_errors"]:
-            logging.warning("Renewing cloudscraper session after Cloudflare failures")
-            self.http = cloudscraper.create_scraper()
+            logging.warning("Renewing HTTP session after Cloudflare failures")
+            self.http = curl_requests.Session(impersonate="chrome")
         if total["errors"] and self.admin_chat_id:
             utils.send_msg(
                 self.bot, self.admin_chat_id,

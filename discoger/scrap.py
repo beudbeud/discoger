@@ -1,4 +1,5 @@
 import re
+import time
 import logging
 import discogs_client
 from bs4 import BeautifulSoup
@@ -37,13 +38,17 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
         url = f"{discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
     cloudflare = False
     try:
-        response = http.get(url, timeout=10)
-        cloudflare = response.status_code == 403 or "cf-mitigated" in response.headers
-        if cloudflare:
+        # ponytail: Cloudflare 403s are intermittent, a retry on the same session usually passes
+        for attempt in range(3):
+            response = http.get(url, timeout=10)
+            cloudflare = response.status_code == 403 or "cf-mitigated" in response.headers
+            if not cloudflare:
+                break
             logging.warning(
-                "Cloudflare check FAILED for release %s (status %s, cf-ray %s)"
-                % (release_id, response.status_code, response.headers.get("cf-ray", "?"))
+                "Cloudflare check FAILED for release %s (attempt %s/3, status %s, cf-ray %s)"
+                % (release_id, attempt + 1, response.status_code, response.headers.get("cf-ray", "?"))
             )
+            time.sleep(2)
         response.raise_for_status()
         logging.info(
             "Cloudflare check OK for release %s (status %s)"
