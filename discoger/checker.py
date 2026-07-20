@@ -32,14 +32,15 @@ class Checker:
     """
 
     def __init__(self, d, dbs, notify, disable_unofficial=True, admin_chat_id=None,
-                 discogs_url="https://www.discogs.com", pause=1.0):
+                 discogs_url="https://www.discogs.com", pause=0.2):
         self.d = d
         self.dbs = dbs
         self.notify = notify
         self.disable_unofficial = disable_unofficial
         self.admin_chat_id = admin_chat_id
         self.discogs_url = discogs_url
-        # ponytail: rate pacing between checks, set to 0 in tests
+        # ponytail: rate pacing between checks (0.2s ≈ 30s cycle for 40 releases),
+        # raise back toward 1s if Cloudflare 403s come back; set to 0 in tests
         self.pause = pause
         # ponytail: long-lived session, renewed only after Cloudflare failures.
         self.http = new_session()
