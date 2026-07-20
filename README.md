@@ -2,6 +2,13 @@
 
 Discoger Bot is a Telegram bot that allows you to be notified when a new sale for a vinyl in your Discogs wantlist is available.
 
+## Features
+
+- Follow Discogs releases or masters and get a Telegram message when a new listing appears (price, condition, shipping origin, suggested price)
+- Synchronize your Discogs wantlist (`/wantlist`)
+- Scheduled checks (every `schedule_time` minutes) with Cloudflare-resilient scraping (curl_cffi with browser impersonation, automatic retries)
+- Optional admin alert on Telegram when checks fail (e.g. Cloudflare blocking)
+
 ## Usage
 
 1. Search for the Telegram bot "Discoger" or click [this link](https://t.me/Discogers_bot) to open a conversation with the bot.
@@ -30,7 +37,12 @@ secret = dbPVkGbCVVffggfgkdfgmlkknzezsbhmscskncno
 
 [telegram]
 token = 1766763279:AAFwufBsdfdsfgdfsgfgsfsgdfgsdf
+admin_chat_id =
 ```
+
+- `schedule_time`: minutes between two check cycles
+- `disable_unofficial`: skip "Unofficial" listings
+- `admin_chat_id` (optional): your Telegram chat id; if set, you receive a summary message when a check cycle has failures (e.g. `⚠️ Discoger: 5/20 checks en échec ce cycle (dont 5 Cloudflare 403)`). Leave empty to disable.
 
 ### Docker
 
