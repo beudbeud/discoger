@@ -111,3 +111,12 @@ def test_non_cloudflare_error(monkeypatch):
     with pytest.raises(scrap.ScrapeError) as exc:
         scrap.check_sales(Http(Resp(status=500)), "https://x", True, "42", "release")
     assert exc.value.cloudflare is False
+
+
+def test_rate_limit_429_counts_as_block_without_retry(monkeypatch):
+    monkeypatch.setattr(scrap.time, "sleep", lambda s: None)
+    http = Http(Resp(status=429))
+    with pytest.raises(scrap.ScrapeError) as exc:
+        scrap.check_sales(http, "https://x", True, "42", "release")
+    assert exc.value.cloudflare is True
+    assert http.calls == 1

@@ -52,8 +52,10 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
                 )
                 time.sleep(2)
                 continue
-            cloudflare = response.status_code == 403 or "cf-mitigated" in response.headers
-            if not cloudflare:
+            # ponytail: 429 counts as a block (cycle abort) but is not retried,
+            # retrying a rate limit 2s later only digs deeper
+            cloudflare = response.status_code in (403, 429) or "cf-mitigated" in response.headers
+            if not cloudflare or response.status_code == 429:
                 break
             logging.warning(
                 "Cloudflare check FAILED for release %s (attempt %s/3, status %s, cf-ray %s)"

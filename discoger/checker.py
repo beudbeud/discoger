@@ -38,15 +38,16 @@ class Checker:
     """
 
     def __init__(self, d, dbs, notify, disable_unofficial=True, admin_chat_id=None,
-                 discogs_url="https://www.discogs.com", pause=0.2, workers=2):
+                 discogs_url="https://www.discogs.com", pause=1, workers=1):
         self.d = d
         self.dbs = dbs
         self.notify = notify
         self.disable_unofficial = disable_unofficial
         self.admin_chat_id = admin_chat_id
         self.discogs_url = discogs_url
-        # ponytail: per-worker pacing before each request; raise it (or lower
-        # workers) if Cloudflare 403s come back; set to 0 in tests
+        # ponytail: per-worker pacing before each request. 2 workers at 0.2s
+        # got 429s and extra Cloudflare 403s (2026-10), keep it slow: a cycle
+        # runs every 30 min anyway. Set to 0 in tests
         self.pause = pause
         # ponytail: pool threads live for the bot's lifetime, so the per-thread
         # sessions below stay long-lived too (renewed only after CF failures)
@@ -195,6 +196,6 @@ class Checker:
         if total["errors"] and self.admin_chat_id:
             self.notify(
                 self.admin_chat_id,
-                "⚠️ Discoger: %s/%s checks en échec ce cycle (dont %s Cloudflare 403)"
+                "⚠️ Discoger: %s/%s checks en échec ce cycle (dont %s Cloudflare 403 / 429)"
                 % (total["errors"], total["checked"], total["cf_errors"]),
             )
