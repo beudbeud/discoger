@@ -138,3 +138,13 @@ def test_cycle_quiet_when_all_green(tmp_path, monkeypatch):
     checker.check_cycle()
 
     assert notify.sent == []
+
+
+def test_renew_sessions_rotates_profile(tmp_path, monkeypatch):
+    used = []
+    monkeypatch.setattr("discoger.checker.new_session", lambda p: used.append(p) or p)
+    checker, _ = make_checker(tmp_path, Notifier())
+    for _ in range(4):
+        checker._get_session()
+        checker.renew_sessions()
+    assert used == ["safari", "chrome", "firefox", "safari"]

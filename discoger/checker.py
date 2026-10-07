@@ -8,10 +8,14 @@ from curl_cffi import requests as curl_requests
 from discoger import scrap
 
 
-def new_session():
-    # curl_cffi firefox impersonation: chrome profile gets intermittent 403s
-    # on /sell/list (masters), firefox passes first try on both endpoints.
-    return curl_requests.Session(impersonate="firefox")
+# ponytail: Cloudflare flips which curl_cffi profile it challenges (chrome 403
+# on /sell/list, then firefox 403 everywhere in 2026-10). After a cycle with
+# Cloudflare failures, renew_sessions() moves to the next profile.
+PROFILES = ["safari", "chrome", "firefox"]
+
+
+def new_session(profile):
+    return curl_requests.Session(impersonate=profile)
 
 
 NEW_SELL_TEXT = (
@@ -53,7 +57,7 @@ class Checker:
     def _get_session(self):
         """One long-lived session per pool thread, recreated when the epoch bumps."""
         if getattr(self._local, "epoch", -1) != self._session_epoch:
-            self._local.http = new_session()
+            self._local.http = new_session(PROFILES[self._session_epoch % len(PROFILES)])
             self._local.epoch = self._session_epoch
         return self._local.http
 
@@ -183,8 +187,11 @@ class Checker:
             % (total["errors"], total["checked"], total["cf_errors"])
         )
         if total["cf_errors"]:
-            logging.warning("Renewing HTTP sessions after Cloudflare failures")
             self.renew_sessions()
+            logging.warning(
+                "Renewing HTTP sessions after Cloudflare failures, next profile: %s"
+                % PROFILES[self._session_epoch % len(PROFILES)]
+            )
         if total["errors"] and self.admin_chat_id:
             self.notify(
                 self.admin_chat_id,
