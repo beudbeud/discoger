@@ -38,16 +38,16 @@ class Checker:
     """
 
     def __init__(self, d, dbs, notify, disable_unofficial=True, admin_chat_id=None,
-                 discogs_url="https://www.discogs.com", pause=1, workers=1, cooldown=3600):
+                 discogs_url="https://www.discogs.com", pause=2.5, workers=1, cooldown=3600):
         self.d = d
         self.dbs = dbs
         self.notify = notify
         self.disable_unofficial = disable_unofficial
         self.admin_chat_id = admin_chat_id
         self.discogs_url = discogs_url
-        # ponytail: per-worker pacing before each request. 2 workers at 0.2s
-        # got 429s and extra Cloudflare 403s (2026-10), keep it slow: a cycle
-        # runs every 30 min anyway. Set to 0 in tests
+        # ponytail: per-worker pacing before each request. Discogs allows 25
+        # unauthenticated requests/min (moving 60s window); 2.5s + request
+        # time stays under it. 1s got 429s after ~10 requests. 0 in tests
         self.pause = pause
         # ponytail: pool threads live for the bot's lifetime, so the per-thread
         # sessions below stay long-lived too (renewed only after CF failures)
