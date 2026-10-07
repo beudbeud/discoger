@@ -28,7 +28,7 @@ After that you need create config.ini file
 
 ```
 [DEFAULT]
-schedule_time = 30
+schedule_time = 45
 disable_unofficial = True
 log_level = INFO
 
@@ -40,7 +40,7 @@ token = 1766763279:AAFwufBsdfdsfgdfsgfgsfsgdfgsdf
 admin_chat_id =
 ```
 
-- `schedule_time`: minutes between two check cycles
+- `schedule_time`: minutes between two checks of a same user; users are spread across this interval
 - `disable_unofficial`: skip "Unofficial" listings
 - `admin_chat_id` (optional): your Telegram chat id; if set, you receive a summary message when a check cycle has failures (e.g. `⚠️ Discoger: 5/20 checks en échec ce cycle (dont 5 Cloudflare 403)`). Leave empty to disable.
 

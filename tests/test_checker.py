@@ -148,3 +148,13 @@ def test_renew_sessions_rotates_profile(tmp_path, monkeypatch):
         checker._get_session()
         checker.renew_sessions()
     assert used == ["safari", "chrome", "firefox", "safari"]
+
+
+def test_due_chat_ids_spreads_users(tmp_path):
+    checker, dbs = make_checker(tmp_path, Notifier())
+    for chat_id in ["100", "101", "-102"]:
+        seed(dbs, chat_id, [make_item()])
+    due = [checker.due_chat_ids(45, minute=m) for m in range(45)]
+    # each user exactly once per interval, never all at the same minute
+    assert sorted(c for d in due for c in d) == ["-102", "100", "101"]
+    assert max(len(d) for d in due) == 1

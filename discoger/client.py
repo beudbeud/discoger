@@ -235,8 +235,13 @@ class Discoger:
             return True
 
     def _scheduled_check(self):
-        if not self._start_check(self.checker.check_cycle):
-            logging.warning("Previous check still running, skipping this interval")
+        due = self.checker.due_chat_ids(int(self.config["DEFAULT"]["schedule_time"]))
+        if not due:
+            return
+        # ponytail: a user whose minute lands while another check runs waits a
+        # full interval; queue them if that starts to matter
+        if not self._start_check(self.checker.check_cycle, due):
+            logging.warning("Previous check still running, skipping users %s" % due)
 
     # -------------------------------------------------------------------------
     # Wiring
@@ -289,7 +294,7 @@ class Discoger:
                 break
 
     def _run(self):
-        schedule.every(int(self.config["DEFAULT"]["schedule_time"])).minutes.do(self._scheduled_check)
+        schedule.every(1).minutes.do(self._scheduled_check)
         polling_thread = threading.Thread(target=self._bot_polling, daemon=True)
         polling_thread.start()
         while True:

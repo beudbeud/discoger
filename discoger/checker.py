@@ -176,10 +176,20 @@ class Checker:
 
         return stats
 
-    def check_cycle(self):
-        logging.info("Check all lists")
+    def due_chat_ids(self, interval, minute=None):
+        """Users whose turn it is this minute: each user gets a fixed offset in
+        the interval (chat_id modulo interval) so checks are spread out instead
+        of hitting Discogs for everyone at once."""
+        if minute is None:
+            minute = int(time.time() // 60)
+        return [c for c in self.dbs.chat_ids() if (int(c) + minute) % interval == 0]
+
+    def check_cycle(self, chat_ids=None):
+        if chat_ids is None:
+            chat_ids = self.dbs.chat_ids()
+        logging.info("Check lists for %s user(s)" % len(chat_ids))
         total = {"checked": 0, "errors": 0, "cf_errors": 0}
-        for chat_id in self.dbs.chat_ids():
+        for chat_id in chat_ids:
             stats = self.check_user(chat_id)
             for key in total:
                 total[key] += stats[key]
