@@ -82,6 +82,8 @@ class Checker:
 
         def check_one(item):
             time.sleep(self.pause)
+            if (item.get("type") or "release") == "release" and not scrap.has_listings(self.d, item["release_id"]):
+                return None
             return scrap.check_sales(
                 self._get_session(), self.discogs_url, self.disable_unofficial,
                 item["release_id"], item.get("type") or "release",

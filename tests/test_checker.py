@@ -177,3 +177,15 @@ def test_due_chat_ids_spreads_users(tmp_path):
     # each user exactly once per interval, never all at the same minute
     assert sorted(c for d in due for c in d) == ["-102", "100", "101"]
     assert max(len(d) for d in due) == 1
+
+
+def test_nothing_for_sale_skips_scrape(tmp_path, monkeypatch):
+    checker, dbs = make_checker(tmp_path, Notifier())
+    seed(dbs, "111", [make_item()])
+    monkeypatch.setattr(scrap, "has_listings", lambda d, rid: False)
+
+    def scraped(*a, **k):
+        raise AssertionError("should not scrape")
+
+    monkeypatch.setattr(scrap, "check_sales", scraped)
+    assert checker.check_user("111") == {"checked": 1, "errors": 0, "cf_errors": 0}

@@ -2,6 +2,7 @@ import re
 import time
 import logging
 import discogs_client
+from discogs_client.models import MarketplaceStats
 from bs4 import BeautifulSoup
 
 
@@ -19,6 +20,19 @@ def fetch_image(d, release_id):
     except Exception as e:
         logging.warning("Could not fetch image for release %s: %s" % (release_id, e))
         return None
+
+
+def has_listings(d, release_id):
+    """Cheap API pre-check (authenticated budget, not the website one) so
+    releases with nothing for sale skip the scrape. True on any API error:
+    better an extra scrape than a missed listing."""
+    # ponytail: marketplace stats may lag the site by a bit; drop this
+    # pre-check if new listings start showing up late
+    try:
+        return MarketplaceStats(d, {"id": release_id}).num_for_sale != 0
+    except Exception as e:
+        logging.warning("Could not fetch marketplace stats for release %s: %s" % (release_id, e))
+        return True
 
 
 def get_suggestion_price(d, release_id):

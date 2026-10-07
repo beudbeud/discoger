@@ -121,3 +121,8 @@ def test_rate_limit_429_counts_as_block_without_retry(monkeypatch):
     assert exc.value.cloudflare is True
     assert exc.value.rate_limited is True
     assert http.calls == 1
+
+
+def test_has_listings_falls_back_to_scrape_on_api_error():
+    # d=None makes the API call blow up: must not skip the scrape
+    assert scrap.has_listings(None, "42") is True
