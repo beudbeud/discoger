@@ -79,10 +79,11 @@ def test_known_sell_no_notification(tmp_path, monkeypatch):
     assert dbs.open("111")["release_list"][0]["last_sell"]["id"] == "100"
 
 
-def test_cloudflare_aborts_after_five(tmp_path, monkeypatch):
+def test_block_pauses_all_checks(tmp_path, monkeypatch):
     notify = Notifier()
     checker, dbs = make_checker(tmp_path, notify)
     seed(dbs, "111", [make_item(str(i)) for i in range(50)])
+    seed(dbs, "222", [make_item("x")])
 
     def blocked(*a, **k):
         time.sleep(0.005)
@@ -92,11 +93,29 @@ def test_cloudflare_aborts_after_five(tmp_path, monkeypatch):
 
     stats = checker.check_user("111")
 
-    # parallel abort: pending checks are cancelled once 5 CF blocks are seen,
-    # in-flight ones may still land, so the exact count is nondeterministic
-    assert stats["cf_errors"] >= 5
-    assert stats["checked"] < 50
+    # first block cancels pending checks (an in-flight one may still land)
+    # and rotates the profile
+    assert 1 <= stats["cf_errors"] <= 2
+    assert checker.blocked()
+    assert checker._session_epoch == 1
     assert notify.sent == []
+    # every later check is skipped until the cooldown ends
+    assert checker.check_user("222")["checked"] == 0
+    checker.blocked_until = 0
+    assert checker.check_user("222")["checked"] == 1
+
+
+def test_rate_limit_keeps_profile(tmp_path, monkeypatch):
+    checker, dbs = make_checker(tmp_path, Notifier())
+    seed(dbs, "111", [make_item()])
+
+    def limited(*a, **k):
+        raise scrap.ScrapeError("429", cloudflare=True, rate_limited=True)
+
+    monkeypatch.setattr(scrap, "check_sales", limited)
+    checker.check_user("111")
+    assert checker.blocked()
+    assert checker._session_epoch == 0
 
 
 def test_blocked_user_db_removed(tmp_path, monkeypatch):
@@ -147,7 +166,7 @@ def test_renew_sessions_rotates_profile(tmp_path, monkeypatch):
     for _ in range(4):
         checker._get_session()
         checker.renew_sessions()
-    assert used == ["safari", "chrome", "firefox", "safari"]
+    assert used == ["chrome", "safari", "chrome", "safari"]
 
 
 def test_due_chat_ids_spreads_users(tmp_path):

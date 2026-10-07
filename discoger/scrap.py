@@ -6,9 +6,10 @@ from bs4 import BeautifulSoup
 
 
 class ScrapeError(Exception):
-    def __init__(self, message, cloudflare=False):
+    def __init__(self, message, cloudflare=False, rate_limited=False):
         super().__init__(message)
         self.cloudflare = cloudflare
+        self.rate_limited = rate_limited
 
 
 def fetch_image(d, release_id):
@@ -37,6 +38,7 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
     else:
         url = f"{discogs_url}/sell/release/{release_id}?sort=listed%2Cdesc&limit=25"
     cloudflare = False
+    rate_limited = False
     try:
         # ponytail: Cloudflare 403s and TLS hiccups (parallel handshakes) are
         # intermittent, a retry on the same session usually passes
@@ -54,8 +56,9 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
                 continue
             # ponytail: 429 counts as a block (cycle abort) but is not retried,
             # retrying a rate limit 2s later only digs deeper
+            rate_limited = response.status_code == 429
             cloudflare = response.status_code in (403, 429) or "cf-mitigated" in response.headers
-            if not cloudflare or response.status_code == 429:
+            if not cloudflare or rate_limited:
                 break
             logging.warning(
                 "Cloudflare check FAILED for release %s (attempt %s/3, status %s, cf-ray %s)"
@@ -69,7 +72,7 @@ def check_sales(http, discogs_url, disable_unofficial, release_id, type_sell):
         )
     except Exception as e:
         logging.warning("Network error for release %s: %s" % (release_id, e))
-        raise ScrapeError(str(e), cloudflare=cloudflare)
+        raise ScrapeError(str(e), cloudflare=cloudflare, rate_limited=rate_limited)
 
     soup = BeautifulSoup(response.text, "html.parser")
 

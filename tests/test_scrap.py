@@ -119,4 +119,5 @@ def test_rate_limit_429_counts_as_block_without_retry(monkeypatch):
     with pytest.raises(scrap.ScrapeError) as exc:
         scrap.check_sales(http, "https://x", True, "42", "release")
     assert exc.value.cloudflare is True
+    assert exc.value.rate_limited is True
     assert http.calls == 1

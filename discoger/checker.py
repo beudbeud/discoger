@@ -9,9 +9,9 @@ from discoger import scrap
 
 
 # ponytail: Cloudflare flips which curl_cffi profile it challenges (chrome 403
-# on /sell/list, then firefox 403 everywhere in 2026-10). After a cycle with
-# Cloudflare failures, renew_sessions() moves to the next profile.
-PROFILES = ["safari", "chrome", "firefox"]
+# on /sell/list, then firefox 403 everywhere, then safari from the server IP
+# in 2026-10). A Cloudflare 403 block moves to the next profile.
+PROFILES = ["chrome", "safari"]
 
 
 def new_session(profile):
@@ -38,7 +38,7 @@ class Checker:
     """
 
     def __init__(self, d, dbs, notify, disable_unofficial=True, admin_chat_id=None,
-                 discogs_url="https://www.discogs.com", pause=1, workers=1):
+                 discogs_url="https://www.discogs.com", pause=1, workers=1, cooldown=3600):
         self.d = d
         self.dbs = dbs
         self.notify = notify
@@ -52,6 +52,10 @@ class Checker:
         # ponytail: pool threads live for the bot's lifetime, so the per-thread
         # sessions below stay long-lived too (renewed only after CF failures)
         self.pool = ThreadPoolExecutor(max_workers=workers)
+        # ponytail: one block (403 after retries, or 429) pauses every check for
+        # `cooldown` seconds: hammering a blocked IP only extends the block
+        self.cooldown = cooldown
+        self.blocked_until = 0
         self._local = threading.local()
         self._session_epoch = 0
 
@@ -98,10 +102,10 @@ class Checker:
                 stats["errors"] += 1
                 if isinstance(e, scrap.ScrapeError) and e.cloudflare:
                     stats["cf_errors"] += 1
-                    if stats["cf_errors"] >= 5:
-                        logging.error("%s Cloudflare blocks, aborting cycle for user %s" % (stats["cf_errors"], chat_id))
-                        for f in futures:
-                            f.cancel()
+                    if not self.blocked():
+                        self.block(rate_limited=e.rate_limited)
+                    for f in futures:
+                        f.cancel()
                 continue
 
             if data_last_sell:
@@ -133,7 +137,24 @@ class Checker:
 
         return updates, bot_blocked, stats
 
+    def blocked(self):
+        return time.time() < self.blocked_until
+
+    def block(self, rate_limited):
+        self.blocked_until = time.time() + self.cooldown
+        # a 429 is about pace, not fingerprint: keep the profile that passed
+        if not rate_limited:
+            self.renew_sessions()
+        logging.error(
+            "%s, pausing all checks for %s min (profile: %s)"
+            % ("Rate limited (429)" if rate_limited else "Cloudflare block (403)",
+               self.cooldown // 60, PROFILES[self._session_epoch % len(PROFILES)])
+        )
+
     def check_user(self, chat_id):
+        if self.blocked():
+            logging.info("Checks paused after a block, skipping user %s" % chat_id)
+            return {"checked": 0, "errors": 0, "cf_errors": 0}
         logging.info("Check user list %s" % chat_id)
 
         with self.dbs.lock(chat_id):
@@ -190,6 +211,8 @@ class Checker:
         logging.info("Check lists for %s user(s)" % len(chat_ids))
         total = {"checked": 0, "errors": 0, "cf_errors": 0}
         for chat_id in chat_ids:
+            if self.blocked():
+                break
             stats = self.check_user(chat_id)
             for key in total:
                 total[key] += stats[key]
@@ -197,12 +220,6 @@ class Checker:
             "Check cycle done: %s/%s checks failed (%s Cloudflare)"
             % (total["errors"], total["checked"], total["cf_errors"])
         )
-        if total["cf_errors"]:
-            self.renew_sessions()
-            logging.warning(
-                "Renewing HTTP sessions after Cloudflare failures, next profile: %s"
-                % PROFILES[self._session_epoch % len(PROFILES)]
-            )
         if total["errors"] and self.admin_chat_id:
             self.notify(
                 self.admin_chat_id,
