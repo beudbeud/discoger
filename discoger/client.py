@@ -35,6 +35,7 @@ class Discoger:
         self.secret = self.config["discogs"]["secret"]
         self.bot = telebot.TeleBot(self.token)
         self.log_level = self.config["DEFAULT"].get("log_level", fallback="INFO")
+        self.allow_registration = self.config["DEFAULT"].getboolean("allow_registration", fallback=True)
 
         handler = logging.StreamHandler()
         handler.setFormatter(utils.CustomFormatter())
@@ -127,7 +128,11 @@ class Discoger:
     def _handle_add_release(self, message):
         chat_id = message.chat.id
         url = message.text
-        release_id = re.findall(r"\d+", url)[0]
+        match = re.search(r"\d+", url)
+        if not match:
+            utils.send_msg(self.bot, chat_id, "No release id in this url, check it")
+            return
+        release_id = match.group()
         try:
             with self.dbs.lock(chat_id):
                 db = self.dbs.open(chat_id)
@@ -177,10 +182,12 @@ class Discoger:
             return
         with self.dbs.lock(chat_id):
             db = self.dbs.open(chat_id)
-            if idx < 0 or idx >= len(db["release_list"]):
+            release_list = db.get("release_list") or []
+            if idx < 0 or idx >= len(release_list):
                 utils.send_msg(self.bot, chat_id, "Index %s is out of range." % idx)
                 return
-            db["release_list"].pop(idx)
+            release_list.pop(idx)
+            db["release_list"] = release_list
             db.save()
         utils.send_msg(self.bot, chat_id, "%s is deleted from following list" % idx)
 
@@ -207,7 +214,7 @@ class Discoger:
                     if not db.search("release_list[?release_id=='%s']" % i.id):
                         release_info = self.d.release(i.id)
                         release = scrap.DiscogerInfo(release_info.url, self.d, str(i.id))
-                        db["release_list"].append(release.release_info)
+                        db["release_list"] = (db.get("release_list") or []) + [release.release_info]
                         db.save()
                         logging.info("Item %s added in following list" % i.id)
                     else:
@@ -218,7 +225,8 @@ class Discoger:
                 if not db.get("wantlist_user"):
                     db["wantlist_user"] = username
                     db.save()
-        except discogs_client.exceptions.DiscogsAPIError as e:
+        except Exception as e:
+            logging.error("Error syncing wantlist %s: %s" % (username, e))
             utils.send_msg(self.bot, chat_id, "Error, %s" % e)
 
     # -------------------------------------------------------------------------
@@ -247,34 +255,46 @@ class Discoger:
     # Wiring
     # -------------------------------------------------------------------------
 
+    def _guard(self, handler):
+        """Reject chats without a database when new registrations are closed."""
+        @functools.wraps(handler)
+        def wrapper(message):
+            chat_id = message.chat.id
+            if not self.allow_registration and not self.dbs.exists(chat_id):
+                logging.info("Registrations closed, ignoring chat %s" % chat_id)
+                utils.send_msg(self.bot, chat_id, "Sorry, new registrations are closed")
+                return
+            return handler(message)
+        return wrapper
+
     def _register_handlers(self):
         self.bot.register_message_handler(
-            self._handle_start,
+            self._guard(self._handle_start),
             commands=["help", "start"],
             pass_bot=False,
         )
         self.bot.register_message_handler(
-            self._handle_check,
+            self._guard(self._handle_check),
             commands=["check"],
             pass_bot=False,
         )
         self.bot.register_message_handler(
-            self._handle_list,
+            self._guard(self._handle_list),
             commands=["list"],
             pass_bot=False,
         )
         self.bot.register_message_handler(
-            self._handle_delete,
+            self._guard(self._handle_delete),
             commands=["delete"],
             pass_bot=False,
         )
         self.bot.register_message_handler(
-            self._handle_wantlist,
+            self._guard(self._handle_wantlist),
             commands=["wantlist"],
             pass_bot=False,
         )
         self.bot.register_message_handler(
-            self._handle_add_release,
+            self._guard(self._handle_add_release),
             regexp="^https://www.discogs.com/.*(release|master)/.*",
             pass_bot=False,
         )

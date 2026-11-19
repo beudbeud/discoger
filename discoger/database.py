@@ -14,6 +14,8 @@ class UserDatabases:
         self._mutex = threading.Lock()
 
     def lock(self, chat_id):
+        # chat ids arrive as int (Telegram) or str (file stems): same lock for both
+        chat_id = str(chat_id)
         with self._mutex:
             if chat_id not in self._locks:
                 self._locks[chat_id] = threading.Lock()
@@ -21,6 +23,9 @@ class UserDatabases:
 
     def open(self, chat_id) -> YamlDB:
         return YamlDB(filename=str(self.directory / ("%s.yaml" % chat_id)))
+
+    def exists(self, chat_id):
+        return (self.directory / ("%s.yaml" % chat_id)).is_file()
 
     def delete(self, chat_id):
         with self.lock(chat_id):

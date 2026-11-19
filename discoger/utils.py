@@ -22,22 +22,27 @@ class CustomFormatter(logging.Formatter):
 
 
 def send_msg(bot, chat_id, text, photo=None, parse_mode="markdown", disable_web_page_preview=False, **kwargs):
-    """Send a Telegram message or photo. Returns False if the user blocked the bot, True otherwise."""
-    try:
-        if photo:
-            bot.send_photo(chat_id=chat_id, photo=photo, parse_mode=parse_mode, caption=text, **kwargs)
-        else:
-            bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=parse_mode,
-                disable_web_page_preview=disable_web_page_preview,
-                **kwargs,
-            )
-        return True
-    except Exception as inst:
-        if "bot was blocked by the user" in str(inst):
-            logging.info("Bot blocked by user %s, muting notifications" % chat_id)
-            return False
-        logging.warning("user: %s, %s" % (chat_id, inst))
-        return True
+    """Send a Telegram message or photo.
+
+    Returns True if sent, False if the user blocked the bot, None if the send failed.
+    """
+    # a title with a stray _ * [ makes Telegram reject the markdown: retry as plain text
+    for mode in dict.fromkeys((parse_mode, None)):
+        try:
+            if photo:
+                bot.send_photo(chat_id=chat_id, photo=photo, parse_mode=mode, caption=text, **kwargs)
+            else:
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode=mode,
+                    disable_web_page_preview=disable_web_page_preview,
+                    **kwargs,
+                )
+            return True
+        except Exception as inst:
+            if "bot was blocked by the user" in str(inst):
+                logging.info("Bot blocked by user %s, muting notifications" % chat_id)
+                return False
+            logging.warning("user: %s, %s" % (chat_id, inst))
+    return None

@@ -33,8 +33,9 @@ NEW_SELL_TEXT = (
 class Checker:
     """Runs the sale checks over the user databases.
 
-    notify(chat_id, text, **kwargs) must return False when the user blocked
-    the bot (same contract as utils.send_msg).
+    notify(chat_id, text, **kwargs) must return True when sent, False when
+    the user blocked the bot, None when the send failed (same contract as
+    utils.send_msg).
     """
 
     def __init__(self, d, dbs, notify, disable_unofficial=True, admin_chat_id=None,
@@ -126,12 +127,14 @@ class Checker:
                     )
                     sent = self.notify(chat_id, text, photo=item.get("image") or None,
                                        disable_web_page_preview=not item.get("image"))
-                    if not sent:
+                    if sent is False:
                         bot_blocked = True
                         for f in futures:
                             f.cancel()
                         continue
-                    updates[item["release_id"]] = data_last_sell
+                    # failed send (None): keep last_sell so the next cycle retries
+                    if sent:
+                        updates[item["release_id"]] = data_last_sell
                 else:
                     logging.info("Not new item for %s - %s" % (item["artist"], item["title"]))
             else:

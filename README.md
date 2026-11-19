@@ -31,6 +31,7 @@ After that you need create config.ini file
 schedule_time = 45
 disable_unofficial = True
 log_level = INFO
+allow_registration = True
 
 [discogs]
 secret = dbPVkGbCVVffggfgkdfgmlkknzezsbhmscskncno
@@ -42,6 +43,7 @@ admin_chat_id =
 
 - `schedule_time`: minutes between two checks of a same user; users are spread across this interval
 - `disable_unofficial`: skip "Unofficial" listings
+- `allow_registration` (optional, default `True`): set to `False` to close the bot to new users; chats that already have a following list keep working
 - `admin_chat_id` (optional): your Telegram chat id; if set, you receive a summary message when a check cycle has failures (e.g. `⚠️ Discoger: 5/20 checks en échec ce cycle (dont 5 Cloudflare 403)`). Leave empty to disable.
 
 ### Docker
